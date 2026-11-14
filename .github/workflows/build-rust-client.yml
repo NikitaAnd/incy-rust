@@ -46,6 +46,9 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y pkg-config libx11-dev libxkbcommon-dev libwayland-dev libxrandr-dev libxi-dev libxcursor-dev libxinerama-dev libxfixes-dev
+      # CI resolves upstream eframe's optional (unused glow) dependencies too;
+      # the offline dev vendor omits them, so refresh the lockfile here.
+      - run: cargo generate-lockfile
       - run: cargo test --workspace --locked
       - run: cargo build --release --locked -p nikitavpnclient
       - uses: actions/upload-artifact@v4
