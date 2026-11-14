@@ -38,7 +38,10 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@1.95.0
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.95.0
+      - run: rustc --version && cargo --version
       - if: runner.os == 'Linux'
         run: |
           sudo apt-get update
