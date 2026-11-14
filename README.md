@@ -26,10 +26,12 @@
 ### Desktop
 
 > [!WARNING]
-> The desktop client is **pre-alpha**. It is usable day to day, but expect rough
-> edges and breaking changes between releases. Please report anything you hit at
-> [feedback.incy.cc](https://feedback.incy.cc) — that is exactly what this stage
-> is for.
+> The installers below are the existing INCY desktop releases; they are **not**
+> builds of the independent Rust implementation in this repository. The original
+> PC client sources were not available, so the Rust project is a new client, not
+> a source-compatible port. The Rust client is experimental and currently has no
+> published installers. See the build instructions below; install Xray-core
+> separately.
 
 | Platform | Installer | Portable |
 |:---------|:----------|:---------|
@@ -67,27 +69,65 @@ The download buttons use the permanent `latest` tag. [RELEASE.json](RELEASE.json
 keeps version-specific URLs for application updates.
 
 
-## Protocols
+## Rust desktop client (experimental)
 
-`VLESS (Reality)` `VMess` `Trojan` `Shadowsocks` `Hysteria2` `SOCKS5` `WireGuard`
+The Rust workspace is an independent desktop implementation built with Rust,
+`egui` and Xray-core. The existing release scripts and metadata are retained,
+but they still describe the upstream desktop release and do not package this
+new client. Build from the repository root:
 
-## Features
+```sh
+cargo build --release -p nikitavpnclient
+cargo test --workspace
+```
 
-| | Mobile & TV | Desktop |
-|:--|:-:|:-:|
-| **Subscriptions** — add by URL, QR or share link, with auto-refresh | ✅ | ✅ |
-| **Routing profiles** — split traffic by domain/IP into proxy, direct or block, with separate remote and domestic DNS | ✅ | ✅ |
-| **Full config import** — raw Xray JSON, including observatory, balancers and custom geo files | ✅ | ✅ |
-| **TLS fragmentation** — fragment ClientHello past DPI; packet type, length and interval are configurable | ✅ | ✅ |
-| **Kill switch** — cut traffic if the tunnel drops, so nothing escapes through the gap | ✅ | ✅ |
-| **Per-app proxy** — route or exclude individual apps | Android | ✅ |
-| **Send to TV** — push a subscription or a single server to Apple TV / Android TV by QR or pairing code | ✅ | — |
-| **Shortcuts & widgets** — connect, disconnect and check status without opening the app | ✅ | Tray |
-| **Customization** — 16 app icons and several themes | ✅ | ✅ |
+Install the official `xray` executable separately and either put it on `PATH`,
+place it beside `nikitavpnclient`, or choose its path in Settings. On Linux, a graphical
+session with X11 or Wayland is required. State is stored locally under the
+platform's application-data directory (or `INCY_DATA_DIR`). The CLI also offers
+`nikitavpnclient list`, `nikitavpnclient import-link <URI>`,
+`nikitavpnclient import-config <PATH>`, `nikitavpnclient config <PROFILE_UUID>`,
+and `nikitavpnclient data-path`; generated config output contains credentials
+and must be kept private. CI builds Linux x86_64, Windows x86_64 and macOS ARM64
+artifacts through the **Build NikitaVPNClient** GitHub Actions workflow.
 
-**Privacy** — servers, keys and subscriptions never leave your device. Mobile
-builds include Firebase Crashlytics for crash reports; the desktop client sends
-no telemetry at all.
+### Implemented in the Rust client
+
+- Native desktop UI with local profile management, search, five color themes,
+  share-link/full-JSON import, HTTPS subscriptions with background refresh, and
+  connect/disconnect.
+- VLESS, VMess, Trojan, Shadowsocks, SOCKS5, Hysteria2 and WireGuard link
+  parsing; Xray JSON generation and loopback-only SOCKS/HTTP inbounds.
+- Xray process supervision, optional per-user system proxy on Windows, macOS
+  and GNOME, HTTPS tunnel probe, domain/IP routing rules, domestic/remote DNS,
+  and Xray TLS ClientHello fragmentation settings.
+- Private local state/config files, atomic state replacement with backup,
+  HTTPS-only subscription redirects, validation and credential-safe errors.
+
+### Not implemented yet
+
+Kill switch, TUN mode, per-application routing, tray icon, QR import/export,
+and complete parity with the existing INCY desktop client are not implemented.
+System proxy mode is not a kill switch: applications can bypass it, and network
+traffic is not guaranteed to stop if Xray exits. Imported Xray JSON is preserved
+and passed to Xray at runtime, but is restricted to loopback-bound inbound
+listeners and must still pass the installed Xray version's config validation.
+KDE-specific proxy integration and runtime testing across Windows/macOS desktops
+are also pending. Do not rely on this experimental build as a security boundary.
+
+| Feature | Mobile & TV | Existing desktop release | Rust desktop |
+|:--|:-:|:-:|:-:|
+| **Subscriptions** — HTTPS URL and automatic refresh | ✅ | ✅ | ✅ background refresh |
+| **Routing rules** — domains/IP to proxy, direct or block | ✅ | ✅ | ✅ basic Xray rules |
+| **Full config import** — arbitrary Xray JSON | ✅ | ✅ | ✅ loopback-only listeners |
+| **TLS fragmentation** | ✅ | ✅ | ✅ Xray TLS ClientHello |
+| **Kill switch / TUN** | ✅ | ✅ | — |
+| **Per-app proxy** | Android | ✅ | — |
+| **Tray / QR / TV pairing** | ✅ | ✅ | — |
+| **Themes** | ✅ | ✅ | ✅ graphite/light/midnight/ocean/forest |
+
+The Rust client has no telemetry. Servers, credentials and subscriptions are
+stored locally; do not share the state file or generated Xray config.
 
 ## Documentation
 

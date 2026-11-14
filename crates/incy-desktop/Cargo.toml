@@ -1,0 +1,22 @@
+[package]
+name = "nikitavpnclient"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+clap.workspace = true
+eframe.workspace = true
+incy-core.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+uuid.workspace = true
+
+[[bin]]
+name = "nikitavpnclient"
+path = "src/main.rs"
+
+[target.'cfg(any(target_os = "linux", target_os = "freebsd", target_os = "dragonfly", target_os = "netbsd", target_os = "openbsd"))'.dependencies]
+winit = { version = "0.30.13", default-features = false, features = ["wayland-dlopen"] }

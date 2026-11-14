@@ -1,0 +1,30 @@
+[workspace]
+members = ["crates/incy-core", "crates/incy-desktop"]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.92"
+license = "MIT"
+
+[workspace.dependencies]
+anyhow = "1"
+base64 = "0.22.1"
+clap = { version = "4.6", features = ["derive"] }
+eframe = { version = "0.34.3", default-features = false, features = ["wgpu", "default_fonts", "x11", "wayland"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10.9"
+tempfile = "3.27"
+thiserror = "2"
+ureq = { version = "3.3", features = ["rustls", "gzip"] }
+url = "2.5"
+uuid = { version = "1.26", features = ["v4", "serde"] }
+zeroize = { version = "1.9", features = ["derive"] }
+incy-core = { path = "crates/incy-core" }
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true
