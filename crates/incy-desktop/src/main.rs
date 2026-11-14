@@ -122,6 +122,7 @@ mod ui {
         last_auto_refresh: Instant,
         tray: Option<tray_icon::TrayIcon>,
         tray_error: Option<String>,
+        quit_requested: bool,
     }
     struct DownloadResult { intent: DownloadIntent, result: incy_core::Result<subscription::Download> }
     enum DownloadIntent { Refresh(Uuid), Add { name: String, url: String } }
@@ -133,7 +134,7 @@ mod ui {
             let xray_path = store.state().settings.xray_path.as_ref().map(|p| p.display().to_string()).unwrap_or_default();
             let (download_tx, download_rx) = mpsc::channel();
             let (tray, tray_error) = create_tray();
-            Self { store, runtime: None, tab: Tab::Servers, search: String::new(), link_input: String::new(), config_input: String::new(), config_name: "Imported Xray config".into(), sub_name: String::new(), sub_url: String::new(), status: "Готово к подключению".into(), selected, routing_editor, xray_path, download_tx, download_rx, active_http_port: None, refreshing: HashSet::new(), last_auto_refresh: Instant::now() - Duration::from_secs(60), tray, tray_error }
+            Self { store, runtime: None, tab: Tab::Servers, search: String::new(), link_input: String::new(), config_input: String::new(), config_name: "Imported Xray config".into(), sub_name: String::new(), sub_url: String::new(), status: "Готово к подключению".into(), selected, routing_editor, xray_path, download_tx, download_rx, active_http_port: None, refreshing: HashSet::new(), last_auto_refresh: Instant::now() - Duration::from_secs(60), tray, tray_error, quit_requested: false }
         }
         fn begin_download(&mut self, intent: DownloadIntent, url: String) {
             self.status = "Загружаю подписку…".into();
@@ -248,11 +249,14 @@ mod ui {
                             self.status = "Сначала выберите сервер".into();
                         }
                     }
-                    "quit" => ctx.send_viewport_cmd(egui::ViewportCommand::Close),
+                    "quit" => {
+                        self.quit_requested = true;
+                        ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                    }
                     _ => {}
                 }
             }
-            if ctx.input(|input| input.viewport().close_requested()) && self.tray.is_some() {
+            if ctx.input(|input| input.viewport().close_requested()) && self.tray.is_some() && !self.quit_requested {
                 ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
                 ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
             }
