@@ -58,6 +58,26 @@ fn generated_xray_config_binds_only_loopback_and_routes_fragment() {
 }
 
 #[test]
+fn application_rules_route_proxy_aware_processes_to_selected_outbounds() {
+    let profile = vless();
+    let mut settings = Settings::default();
+    settings.proxy_apps = vec!["firefox".into()];
+    settings.direct_apps = vec!["curl".into()];
+    let config = config::generate(&profile.endpoint, &settings).unwrap();
+    let rules = config["routing"]["rules"].as_array().unwrap();
+    assert!(rules.iter().any(|rule| rule["process"][0] == "firefox" && rule["outboundTag"] == "proxy"));
+    assert!(rules.iter().any(|rule| rule["process"][0] == "curl" && rule["outboundTag"] == "direct"));
+
+    let mut imported = serde_json::json!({"outbounds": [{"tag":"proxy"},{"tag":"direct"}], "routing":{"rules":[]}});
+    config::apply_application_rules(&mut imported, &settings).unwrap();
+    assert_eq!(imported["routing"]["rules"][0]["process"][0], "firefox");
+    assert_eq!(imported["routing"]["rules"][1]["process"][0], "curl");
+
+    settings.direct_apps.push("FIREFOX".into());
+    assert!(settings.validate().is_err());
+}
+
+#[test]
 fn rejects_fragmentation_without_tls_and_hysteria() {
     let mut endpoint = vless().endpoint; endpoint.security = Security::None;
     let mut settings = Settings::default(); settings.fragment = Some(Default::default());

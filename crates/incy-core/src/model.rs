@@ -374,6 +374,12 @@ pub struct Settings {
     pub http_port: u16,
     /// Opt-in OS proxy changes. This is NOT a TUN mode or a kill switch.
     pub set_system_proxy: bool,
+    /// Executable names whose local proxy connections should use the proxy outbound.
+    #[serde(default)]
+    pub proxy_apps: Vec<String>,
+    /// Executable names whose local proxy connections should use the direct outbound.
+    #[serde(default)]
+    pub direct_apps: Vec<String>,
     pub routing: Routing,
     pub fragment: Option<Fragment>,
     pub theme: Theme,
@@ -382,7 +388,8 @@ pub struct Settings {
 impl Default for Settings {
     fn default() -> Self {
         Self { xray_path: None, socks_port: 2080, http_port: 2081, set_system_proxy: false,
-            routing: Routing::default(), fragment: None, theme: Theme::Dark, language: Language::Ru }
+            proxy_apps: Vec::new(), direct_apps: Vec::new(), routing: Routing::default(), fragment: None,
+            theme: Theme::Dark, language: Language::Ru }
     }
 }
 impl Settings {
@@ -394,10 +401,29 @@ impl Settings {
             return Err(Error::InvalidProfile("empty Xray path".into()));
         }
         self.routing.validate()?;
+        validate_app_names(&self.proxy_apps, "proxy")?;
+        validate_app_names(&self.direct_apps, "direct")?;
+        let direct: std::collections::HashSet<String> = self.direct_apps.iter().map(|n| n.to_lowercase()).collect();
+        if self.proxy_apps.iter().any(|name| direct.contains(&name.to_lowercase())) {
+            return Err(Error::InvalidProfile("an application cannot be both proxy-routed and direct-routed".into()));
+        }
         if let Some(f) = &self.fragment { f.validate()?; }
         Ok(())
     }
 }
+fn validate_app_names(names: &[String], kind: &str) -> Result<()> {
+    if names.len() > 64 {
+        return Err(Error::InvalidProfile(format!("at most 64 {kind}-routed applications are supported")));
+    }
+    for name in names {
+        let trimmed = name.trim();
+        if trimmed.is_empty() || trimmed.len() > 512 || trimmed.contains(['\r', '\n', '\0']) {
+            return Err(Error::InvalidProfile(format!("invalid {kind}-routed application name")));
+        }
+    }
+    Ok(())
+}
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "camelCase")]
 pub enum Theme { #[default] Dark, Light, Midnight, Ocean, Forest, System }

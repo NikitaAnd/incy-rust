@@ -133,6 +133,12 @@ pub fn generate(endpoint: &Endpoint, settings: &Settings) -> Result<Value> {
     }
     let r = &settings.routing;
     let mut rules = vec![json!({"type": "field", "inboundTag": ["socks-in", "http-in"], "port": 53, "network": "udp", "outboundTag": "dns-out"})];
+    if !settings.proxy_apps.is_empty() {
+        rules.push(json!({"type": "field", "inboundTag": ["socks-in", "http-in"], "process": settings.proxy_apps, "outboundTag": "proxy"}));
+    }
+    if !settings.direct_apps.is_empty() {
+        rules.push(json!({"type": "field", "inboundTag": ["socks-in", "http-in"], "process": settings.direct_apps, "outboundTag": "direct"}));
+    }
     for (domains, ips, tag) in [(&r.block_domains, &r.block_ips, "block"), (&r.proxy_domains, &r.proxy_ips, "proxy"), (&r.direct_domains, &r.direct_ips, "direct")] {
         if !domains.is_empty() { rules.push(json!({"type": "field", "domain": domains, "outboundTag": tag})); }
         if !ips.is_empty() { rules.push(json!({"type": "field", "ip": ips, "outboundTag": tag})); }
@@ -169,6 +175,38 @@ fn apply_security(stream: &mut Map<String, Value>, security: &Security, address:
             stream.insert("realitySettings".into(), json!({"serverName": sni, "publicKey": public_key, "shortId": short_id, "fingerprint": fingerprint, "spiderX": spider_x}));
         }
     }
+    Ok(())
+}
+
+/// Add per-application rules to an imported config. Xray's process matcher
+/// identifies the local process that opened a SOCKS/HTTP inbound connection;
+/// it does not capture direct traffic from apps that bypass the local proxy.
+pub fn apply_application_rules(config: &mut Value, settings: &Settings) -> Result<()> {
+    if settings.proxy_apps.is_empty() && settings.direct_apps.is_empty() { return Ok(()); }
+    let outbounds = config.get("outbounds").and_then(Value::as_array)
+        .ok_or_else(|| Error::InvalidProfile("application routing needs an outbounds array".into()))?;
+    for (apps, tag) in [(&settings.proxy_apps, "proxy"), (&settings.direct_apps, "direct")] {
+        if apps.is_empty() { continue; }
+        if !outbounds.iter().any(|outbound| outbound.get("tag").and_then(Value::as_str) == Some(tag)) {
+            return Err(Error::InvalidProfile(format!("application routing requires an imported outbound tagged '{tag}'")));
+        }
+    }
+    if !config.get("routing").is_some_and(Value::is_object) {
+        config["routing"] = json!({"rules": []});
+    }
+    let routing = config.get_mut("routing").and_then(Value::as_object_mut)
+        .ok_or_else(|| Error::InvalidProfile("imported routing must be a JSON object".into()))?;
+    let rules = routing.entry("rules").or_insert_with(|| json!([])).as_array_mut()
+        .ok_or_else(|| Error::InvalidProfile("imported routing rules must be an array".into()))?;
+    let mut app_rules = Vec::new();
+    if !settings.proxy_apps.is_empty() {
+        app_rules.push(json!({"type": "field", "process": settings.proxy_apps, "outboundTag": "proxy"}));
+    }
+    if !settings.direct_apps.is_empty() {
+        app_rules.push(json!({"type": "field", "process": settings.direct_apps, "outboundTag": "direct"}));
+    }
+    app_rules.append(rules);
+    *rules = app_rules;
     Ok(())
 }
 

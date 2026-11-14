@@ -104,19 +104,22 @@ artifacts through the **Build NikitaVPNClient** GitHub Actions workflow.
 - VLESS, VMess, Trojan, Shadowsocks, SOCKS5, Hysteria2 and WireGuard link
   parsing; Xray JSON generation and loopback-only SOCKS/HTTP inbounds.
 - Xray process supervision, optional per-user system proxy on Windows, macOS
-  and GNOME, HTTPS tunnel probe, domain/IP routing rules, domestic/remote DNS,
+  and GNOME, HTTPS tunnel probe, domain/IP routing rules, per-process proxy/direct
+  rules for apps that connect to the local HTTP/SOCKS proxy, domestic/remote DNS,
   and Xray TLS ClientHello fragmentation settings.
 - Private local state/config files, atomic state replacement with backup,
   HTTPS-only subscription redirects, validation and credential-safe errors.
 
 ### Not implemented yet
 
-Kill switch, TUN mode, per-application routing, QR import/export, and complete
-parity with the existing INCY desktop client are not implemented. The tray menu
-is implemented, but availability depends on a desktop environment that supports
-StatusNotifierItem (Linux) or the native tray (Windows/macOS).
-System proxy mode is not a kill switch: applications can bypass it, and network
-traffic is not guaranteed to stop if Xray exits. Imported Xray JSON is preserved
+Kill switch, TUN mode, transparent per-application capture, QR import/export,
+and complete parity with the existing INCY desktop client are not implemented.
+Per-process Xray rules only affect apps that explicitly use the local SOCKS/HTTP
+proxy; they do not capture arbitrary app traffic. The tray menu is implemented,
+but availability depends on a desktop environment that supports
+StatusNotifierItem (Linux) or the native tray (Windows/macOS). System proxy mode
+is not a kill switch: applications can bypass it, and network traffic is not
+guaranteed to stop if Xray exits. Imported Xray JSON is preserved
 and passed to Xray at runtime, but is restricted to loopback-bound inbound
 listeners and must still pass the installed Xray version's config validation.
 KDE-specific proxy integration and runtime testing across Windows/macOS desktops
@@ -129,7 +132,7 @@ are also pending. Do not rely on this experimental build as a security boundary.
 | **Full config import** — arbitrary Xray JSON | ✅ | ✅ | ✅ loopback-only listeners |
 | **TLS fragmentation** | ✅ | ✅ | ✅ Xray TLS ClientHello |
 | **Kill switch / TUN** | ✅ | ✅ | — |
-| **Per-app proxy** | Android | ✅ | — |
+| **Per-app proxy** | Android | ✅ | ✅ Xray rules for apps using local proxy; no transparent capture |
 | **Tray / QR / TV pairing** | ✅ | ✅ | ✅ tray / — QR |
 | **Themes** | ✅ | ✅ | ✅ graphite/light/midnight/ocean/forest |
 

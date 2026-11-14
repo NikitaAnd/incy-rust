@@ -114,6 +114,8 @@ mod ui {
         status: String,
         selected: Option<Uuid>,
         routing_editor: String,
+        proxy_apps_editor: String,
+        direct_apps_editor: String,
         xray_path: String,
         download_tx: Sender<DownloadResult>,
         download_rx: Receiver<DownloadResult>,
@@ -131,10 +133,12 @@ mod ui {
         pub fn new(store: Store) -> Self {
             let selected = store.state().selected_profile;
             let routing_editor = serde_json::to_string_pretty(&store.state().settings.routing).unwrap_or_default();
+            let proxy_apps_editor = store.state().settings.proxy_apps.join("\n");
+            let direct_apps_editor = store.state().settings.direct_apps.join("\n");
             let xray_path = store.state().settings.xray_path.as_ref().map(|p| p.display().to_string()).unwrap_or_default();
             let (download_tx, download_rx) = mpsc::channel();
             let (tray, tray_error) = create_tray();
-            Self { store, runtime: None, tab: Tab::Servers, search: String::new(), link_input: String::new(), config_input: String::new(), config_name: "Imported Xray config".into(), sub_name: String::new(), sub_url: String::new(), status: "Готово к подключению".into(), selected, routing_editor, xray_path, download_tx, download_rx, active_http_port: None, refreshing: HashSet::new(), last_auto_refresh: Instant::now() - Duration::from_secs(60), tray, tray_error, quit_requested: false }
+            Self { store, runtime: None, tab: Tab::Servers, search: String::new(), link_input: String::new(), config_input: String::new(), config_name: "Imported Xray config".into(), sub_name: String::new(), sub_url: String::new(), status: "Готово к подключению".into(), selected, routing_editor, proxy_apps_editor, direct_apps_editor, xray_path, download_tx, download_rx, active_http_port: None, refreshing: HashSet::new(), last_auto_refresh: Instant::now() - Duration::from_secs(60), tray, tray_error, quit_requested: false }
         }
         fn begin_download(&mut self, intent: DownloadIntent, url: String) {
             self.status = "Загружаю подписку…".into();
@@ -188,13 +192,15 @@ mod ui {
         fn connect(&mut self, id: Uuid) {
             let Some(profile) = self.store.state().profiles.iter().find(|p| p.id == id).cloned() else { self.status = "Профиль не найден".into(); return; };
             let result = (|| -> incy_core::Result<(runtime::Runtime, Option<u16>)> {
-                let xray = runtime::find_xray(&self.store.state().settings, embedded_xray())?;
-                let cfg = match &profile.raw_xray_config {
+                let settings = &self.store.state().settings;
+                let xray = runtime::find_xray(settings, embedded_xray())?;
+                let mut cfg = match &profile.raw_xray_config {
                     Some(value) => value.clone(),
-                    None => config::generate(&profile.endpoint, &self.store.state().settings)?,
+                    None => config::generate(&profile.endpoint, settings)?,
                 };
-                let probe_port = if profile.raw_xray_config.is_some() { runtime::http_inbound_port(&cfg) } else { Some(self.store.state().settings.http_port) };
-                let run = runtime::Runtime::start(profile.id, &profile.name, cfg, &self.store.state().settings, &xray)?;
+                if profile.raw_xray_config.is_some() { config::apply_application_rules(&mut cfg, settings)?; }
+                let probe_port = if profile.raw_xray_config.is_some() { runtime::http_inbound_port(&cfg) } else { Some(settings.http_port) };
+                let run = runtime::Runtime::start(profile.id, &profile.name, cfg, settings, &xray)?;
                 Ok((run, probe_port))
             })();
             match result { Ok((run, probe_port)) => { self.runtime = Some(run); self.active_http_port = probe_port; self.selected = Some(id); self.status = format!("Подключено: {}", profile.name); }, Err(e) => self.status = safe_error(e) }
@@ -208,6 +214,8 @@ mod ui {
             if self.runtime.is_some() { self.status = "Отключитесь перед изменением настроек".into(); return; }
             let mut settings = self.store.state().settings.clone();
             settings.xray_path = if self.xray_path.trim().is_empty() { None } else { Some(std::path::PathBuf::from(self.xray_path.trim())) };
+            settings.proxy_apps = self.proxy_apps_editor.lines().map(str::trim).filter(|line| !line.is_empty()).map(str::to_owned).collect();
+            settings.direct_apps = self.direct_apps_editor.lines().map(str::trim).filter(|line| !line.is_empty()).map(str::to_owned).collect();
             match serde_json::from_str::<incy_core::Routing>(&self.routing_editor) {
                 Ok(routing) => settings.routing = routing,
                 Err(_) => { self.status = "Правила маршрутизации содержат ошибку JSON".into(); return; }
@@ -471,7 +479,7 @@ mod ui {
             card(ui, "Xray-core", colors, |ui| {
                 ui.label("Путь к исполняемому файлу (пусто — поиск рядом с приложением и в PATH)");
                 ui.add(egui::TextEdit::singleline(&mut self.xray_path).hint_text(if cfg!(windows) { "C:\\incy\\xray.exe" } else { "/usr/bin/xray" }).desired_width(f32::INFINITY));
-                ui.label(RichText::new("Xray-core не включён в комплект: установите официальный бинарный файл отдельно.").small().color(colors.muted));
+                ui.label(RichText::new("В CI-сборках Xray-core и GeoIP/GeoSite поставляются внутри приложения. Укажите путь вручную только для собственной dev-сборки.").small().color(colors.muted));
             });
             ui.add_space(10.0);
             card(ui, "Прокси и интерфейс", colors, |ui| {
@@ -483,6 +491,18 @@ mod ui {
                     ui.label("Тема"); egui::ComboBox::from_id_salt("theme").selected_text(format!("{:?}", settings.theme)).show_ui(ui, |ui| { ui.selectable_value(&mut settings.theme, incy_core::Theme::Dark, "Графит"); ui.selectable_value(&mut settings.theme, incy_core::Theme::Light, "Светлая"); ui.selectable_value(&mut settings.theme, incy_core::Theme::Midnight, "Полночь"); ui.selectable_value(&mut settings.theme, incy_core::Theme::Ocean, "Океан"); ui.selectable_value(&mut settings.theme, incy_core::Theme::Forest, "Лес"); ui.selectable_value(&mut settings.theme, incy_core::Theme::System, "Системная (графит)"); });
                 });
                 if ui.add_enabled(self.runtime.is_none(), egui::Button::new("Сохранить параметры прокси и темы")).clicked() { let result = self.store.update_settings(settings); self.message(result, "Настройки сохранены"); }
+            });
+            ui.add_space(10.0);
+            card(ui, "Маршрутизация по приложениям", colors, |ui| {
+                ui.label(RichText::new("Укажите имя executable по одному на строку. Xray применит правила, когда приложение подключается к локальному SOCKS/HTTP-прокси.").small().color(colors.muted));
+                ui.columns(2, |columns| {
+                    columns[0].label("Через прокси");
+                    columns[0].add(egui::TextEdit::multiline(&mut self.proxy_apps_editor).code_editor().desired_rows(4).desired_width(f32::INFINITY).hint_text(if cfg!(windows) { "browser.exe" } else { "firefox" }));
+                    columns[1].label("Напрямую");
+                    columns[1].add(egui::TextEdit::multiline(&mut self.direct_apps_editor).code_editor().desired_rows(4).desired_width(f32::INFINITY).hint_text(if cfg!(windows) { "game.exe" } else { "game" }));
+                });
+                ui.label(RichText::new("Важно: это не перехват всего трафика процесса. Настройте само приложение на SOCKS5/HTTP адрес 127.0.0.1 и порт выше; приложения, обходящие локальный прокси, этими правилами не управляются.").small().color(Color32::from_rgb(238, 181, 105)));
+                if ui.button("Сохранить маршруты приложений").clicked() { self.save_settings(); }
             });
             ui.add_space(10.0);
             card(ui, "Маршрутизация Xray (JSON)", colors, |ui| {
