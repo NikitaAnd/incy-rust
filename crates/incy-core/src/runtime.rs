@@ -1,16 +1,26 @@
 //! Xray process lifetime and optional OS proxy ownership.
 
+use std::fs::{self, OpenOptions};
+use std::io::Write;
 use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
+use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
 use crate::error::{Error, Result};
 use crate::model::Settings;
 use crate::store::PrivateFile;
 use crate::system_proxy::SystemProxyGuard;
+
+#[derive(Clone, Copy)]
+pub struct EmbeddedXray<'a> {
+    pub executable: &'a [u8],
+    pub geoip: &'a [u8],
+    pub geosite: &'a [u8],
+}
 
 pub struct Runtime {
     child: Child,
@@ -30,22 +40,29 @@ impl Runtime {
             return Err(Error::InvalidProfile("system proxy requires an imported HTTP inbound on the configured HTTP port".into()));
         }
         crate::config::validate_with_xray(xray, &config)?;
-        for port in [settings.socks_port, settings.http_port] {
-            if TcpListener::bind(("127.0.0.1", port)).is_err() { return Err(Error::PortInUse); }
+        let tcp_ports = local_tcp_inbound_ports(&config);
+        for port in &tcp_ports {
+            if TcpListener::bind(("127.0.0.1", *port)).is_err() { return Err(Error::PortInUse); }
         }
         let config_file = PrivateFile::write_json(&config)?;
         let mut command = Command::new(xray);
+        if let Some(asset_dir) = xray.parent() { command.env("XRAY_LOCATION_ASSET", asset_dir); }
         command.arg("run").arg("-c").arg(config_file.path())
             .stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
         #[cfg(target_os = "windows")]
         { use std::os::windows::process::CommandExt; command.creation_flags(0x0800_0000); }
         let mut child = command.spawn()?;
-        let deadline = Instant::now() + Duration::from_secs(8);
+        let startup_probe = if tcp_ports.is_empty() { Duration::from_millis(500) } else { Duration::from_secs(8) };
+        let started_at = Instant::now();
+        let deadline = started_at + startup_probe;
         loop {
             if child.try_wait()?.is_some() { return Err(Error::XrayStartup); }
-            let socks = TcpStream::connect(("127.0.0.1", settings.socks_port)).is_ok();
-            let http = TcpStream::connect(("127.0.0.1", settings.http_port)).is_ok();
-            if socks && http { break; }
+            let ready = if tcp_ports.is_empty() {
+                started_at.elapsed() >= startup_probe
+            } else {
+                tcp_ports.iter().all(|port| TcpStream::connect(("127.0.0.1", *port)).is_ok())
+            };
+            if ready { break; }
             if Instant::now() >= deadline {
                 let _ = child.kill(); let _ = child.wait();
                 return Err(Error::XrayStartup);
@@ -84,6 +101,20 @@ impl Runtime {
 }
 impl Drop for Runtime { fn drop(&mut self) { let _ = self.shutdown(); } }
 
+fn local_tcp_inbound_ports(config: &serde_json::Value) -> Vec<u16> {
+    let Some(inbounds) = config.get("inbounds").and_then(serde_json::Value::as_array) else { return Vec::new(); };
+    let mut ports = Vec::new();
+    for inbound in inbounds {
+        let protocol = inbound.get("protocol").and_then(serde_json::Value::as_str).unwrap_or("");
+        if !matches!(protocol, "socks" | "http" | "vmess" | "vless" | "trojan" | "shadowsocks") { continue; }
+        let Some(listen) = inbound.get("listen").and_then(serde_json::Value::as_str) else { continue; };
+        if !(listen == "localhost" || listen.parse::<std::net::IpAddr>().is_ok_and(|ip| ip.is_loopback())) { continue; }
+        let Some(port) = inbound.get("port").and_then(|p| p.as_u64().or_else(|| p.as_str().and_then(|s| s.parse().ok()))).and_then(|p| u16::try_from(p).ok()) else { continue; };
+        if port > 0 && !ports.contains(&port) { ports.push(port); }
+    }
+    ports
+}
+
 pub fn http_inbound_port(config: &serde_json::Value) -> Option<u16> {
     config.get("inbounds")?.as_array()?.iter().find_map(|inbound| {
         let is_http = inbound.get("protocol")?.as_str()? == "http";
@@ -104,10 +135,53 @@ fn config_has_http_listener(config: &serde_json::Value, port: u16) -> bool {
     })
 }
 
-pub fn find_xray(settings: &Settings) -> Result<PathBuf> {
+fn install_embedded_file(dir: &Path, name: &str, bytes: &[u8], executable: bool) -> Result<PathBuf> {
+    let destination = dir.join(name);
+    let expected = Sha256::digest(bytes);
+    if let Ok(existing) = fs::read(&destination) {
+        if Sha256::digest(&existing) == expected { return Ok(destination); }
+    }
+    let temporary = dir.join(format!(".{name}-{}.tmp", Uuid::new_v4()));
+    let result = (|| -> Result<()> {
+        let mut options = OpenOptions::new();
+        options.write(true).create_new(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.mode(if executable { 0o700 } else { 0o600 });
+        }
+        let mut file = options.open(&temporary)?;
+        file.write_all(bytes)?;
+        file.sync_all()?;
+        drop(file);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&temporary, fs::Permissions::from_mode(if executable { 0o700 } else { 0o600 }))?;
+        }
+        if destination.exists() { fs::remove_file(&destination)?; }
+        fs::rename(&temporary, &destination)?;
+        Ok(())
+    })();
+    if result.is_err() { let _ = fs::remove_file(&temporary); }
+    result?;
+    Ok(destination)
+}
+
+fn materialize_xray(bundle: EmbeddedXray<'_>) -> Result<PathBuf> {
+    let dir = crate::store::default_data_dir()?.join("core");
+    crate::store::create_private_dir(&dir)?;
+    install_embedded_file(&dir, if cfg!(windows) { "xray.exe" } else { "xray" }, bundle.executable, true)?;
+    install_embedded_file(&dir, "geoip.dat", bundle.geoip, false)?;
+    install_embedded_file(&dir, "geosite.dat", bundle.geosite, false)
+        .map(|_| dir.join(if cfg!(windows) { "xray.exe" } else { "xray" }))
+}
+
+pub fn find_xray(settings: &Settings, embedded: Option<EmbeddedXray<'_>>) -> Result<PathBuf> {
     if let Some(path) = &settings.xray_path {
         return if path.is_file() { Ok(path.clone()) } else { Err(Error::XrayNotFound) };
     }
+    if let Some(bundle) = embedded { return materialize_xray(bundle); }
     let name = if cfg!(windows) { "xray.exe" } else { "xray" };
     if let Ok(current) = std::env::current_exe() {
         if let Some(dir) = current.parent() {

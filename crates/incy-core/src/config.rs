@@ -175,7 +175,9 @@ fn apply_security(stream: &mut Map<String, Value>, security: &Security, address:
 /// Check every layer using the user's actual core, not a version guessed by us.
 pub fn validate_with_xray(binary: &std::path::Path, config: &Value) -> Result<()> {
     let file = crate::store::PrivateFile::write_json(config)?;
-    let output = std::process::Command::new(binary).arg("run").arg("-test").arg("-c").arg(file.path()).output()?;
+    let mut command = std::process::Command::new(binary);
+    if let Some(asset_dir) = binary.parent() { command.env("XRAY_LOCATION_ASSET", asset_dir); }
+    let output = command.arg("run").arg("-test").arg("-c").arg(file.path()).output()?;
     if !output.status.success() {
         // Core diagnostics may quote credentials. Do not expose them in UI/logs.
         return Err(Error::XrayRejected("check the selected core version and profile fields; raw core output is not displayed because it may contain keys".into()));

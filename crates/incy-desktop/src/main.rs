@@ -2,6 +2,17 @@ use clap::{Parser, Subcommand};
 use incy_core::{config, share_link, Store};
 use uuid::Uuid;
 
+#[cfg(incy_embedded_xray)]
+static EMBEDDED_XRAY: incy_core::runtime::EmbeddedXray<'static> = incy_core::runtime::EmbeddedXray {
+    executable: include_bytes!(env!("INCY_XRAY_BINARY")),
+    geoip: include_bytes!(env!("INCY_GEOIP_BINARY")),
+    geosite: include_bytes!(env!("INCY_GEOSITE_BINARY")),
+};
+#[cfg(incy_embedded_xray)]
+fn embedded_xray() -> Option<incy_core::runtime::EmbeddedXray<'static>> { Some(EMBEDDED_XRAY) }
+#[cfg(not(incy_embedded_xray))]
+fn embedded_xray() -> Option<incy_core::runtime::EmbeddedXray<'static>> { None }
+
 #[derive(Parser)]
 #[command(name = "nikitavpnclient", version, about = "NikitaVPNClient desktop app powered by Xray-core")]
 struct Cli {
@@ -172,7 +183,7 @@ mod ui {
         fn connect(&mut self, id: Uuid) {
             let Some(profile) = self.store.state().profiles.iter().find(|p| p.id == id).cloned() else { self.status = "Профиль не найден".into(); return; };
             let result = (|| -> incy_core::Result<(runtime::Runtime, Option<u16>)> {
-                let xray = runtime::find_xray(&self.store.state().settings)?;
+                let xray = runtime::find_xray(&self.store.state().settings, embedded_xray())?;
                 let cfg = match &profile.raw_xray_config {
                     Some(value) => value.clone(),
                     None => config::generate(&profile.endpoint, &self.store.state().settings)?,

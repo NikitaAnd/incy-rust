@@ -81,10 +81,13 @@ cargo build --release -p nikitavpnclient
 cargo test --workspace
 ```
 
-Install the official `xray` executable separately and either put it on `PATH`,
-place it beside `nikitavpnclient`, or choose its path in Settings. On Linux, a graphical
-session with X11 or Wayland is required. State is stored locally under the
-platform's application-data directory (or `INCY_DATA_DIR`). The CLI also offers
+The GitHub Actions artifacts bundle the official Xray-core executable inside
+NikitaVPNClient and extract it to a private application-data directory on first
+launch. Normal users do not need to download Xray separately. A local development
+build without `INCY_XRAY_BINARY` still needs `xray` on `PATH`, beside the app, or
+selected in Settings. On Linux, a graphical session with X11 or Wayland is
+required. State is stored locally under the platform's application-data directory
+(or `INCY_DATA_DIR`). The CLI also offers
 `nikitavpnclient list`, `nikitavpnclient import-link <URI>`,
 `nikitavpnclient import-config <PATH>`, `nikitavpnclient config <PROFILE_UUID>`,
 and `nikitavpnclient data-path`; generated config output contains credentials

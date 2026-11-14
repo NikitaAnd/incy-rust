@@ -29,23 +29,58 @@ jobs:
           - os: ubuntu-24.04
             suffix: linux-x86_64
             binary: target/release/nikitavpnclient
+            xray_asset: Xray-linux-64.zip
+            xray_executable: xray
           - os: windows-2025
             suffix: windows-x86_64
             binary: target/release/nikitavpnclient.exe
+            xray_asset: Xray-windows-64.zip
+            xray_executable: xray.exe
           - os: macos-15
             suffix: macos-arm64
             binary: target/release/nikitavpnclient
+            xray_asset: Xray-macos-arm64-v8a.zip
+            xray_executable: xray
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: 1.95.0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
       - run: rustc --version && cargo --version
       - if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y pkg-config libx11-dev libxkbcommon-dev libwayland-dev libxrandr-dev libxi-dev libxcursor-dev libxinerama-dev libxfixes-dev
+      - name: Download official Xray-core release
+        shell: bash
+        run: |
+          mkdir -p build-assets
+          curl --fail --location --silent --show-error \
+            "https://github.com/XTLS/Xray-core/releases/latest/download/${{ matrix.xray_asset }}" \
+            --output build-assets/xray-release.zip
+          python - <<'PY'
+          import os
+          from pathlib import Path
+          from zipfile import ZipFile
+
+          executable = os.environ["XRAY_EXECUTABLE"]
+          bundled = {executable: "INCY_XRAY_BINARY", "geoip.dat": "INCY_GEOIP_BINARY", "geosite.dat": "INCY_GEOSITE_BINARY"}
+          with ZipFile("build-assets/xray-release.zip") as archive:
+              for filename, variable in bundled.items():
+                  matches = [item for item in archive.infolist() if Path(item.filename).name == filename]
+                  if len(matches) != 1:
+                      raise SystemExit(f"Expected one {filename} in the official release archive; got {len(matches)}")
+                  destination = Path("build-assets") / filename
+                  destination.write_bytes(archive.read(matches[0]))
+                  with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as env:
+                      env.write(f"{variable}={destination.resolve()}\n")
+          PY
+        env:
+          XRAY_EXECUTABLE: ${{ matrix.xray_executable }}
       # CI resolves upstream eframe's optional (unused glow) dependencies too;
       # the offline dev vendor omits them, so refresh the lockfile here.
       - run: cargo generate-lockfile
