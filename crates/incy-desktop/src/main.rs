@@ -50,8 +50,8 @@ fn main() -> anyhow::Result<()> {
         Command::Gui => {
             let options = eframe::NativeOptions {
                 viewport: eframe::egui::ViewportBuilder::default()
-                    .with_inner_size([1120.0, 760.0])
-                    .with_min_inner_size([760.0, 560.0]),
+                    .with_inner_size([1240.0, 840.0])
+                    .with_min_inner_size([900.0, 680.0]),
                 ..Default::default()
             };
             eframe::run_native("NikitaVPNClient", options, Box::new(move |_cc| Ok(Box::new(ui::IncyApp::new(store)))))?;
@@ -236,8 +236,26 @@ mod ui {
             let mut visuals = if theme == incy_core::Theme::Light { egui::Visuals::light() } else { egui::Visuals::dark() };
             visuals.window_fill = colors.panel;
             visuals.panel_fill = colors.bg;
+            visuals.extreme_bg_color = colors.bg;
+            visuals.faint_bg_color = colors.card;
+            visuals.widgets.noninteractive.bg_fill = colors.panel;
             visuals.widgets.inactive.bg_fill = colors.card;
-            visuals.selection.bg_fill = colors.accent;
+            visuals.widgets.inactive.weak_bg_fill = colors.card;
+            visuals.widgets.hovered.bg_fill = colors.accent.gamma_multiply(0.22);
+            visuals.widgets.active.bg_fill = colors.accent;
+            visuals.widgets.open.bg_fill = colors.card;
+            visuals.widgets.noninteractive.fg_stroke = Stroke::new(1.0, colors.muted);
+            visuals.widgets.inactive.fg_stroke = Stroke::new(1.0, colors.text);
+            visuals.widgets.hovered.fg_stroke = Stroke::new(1.2, colors.text);
+            visuals.widgets.active.fg_stroke = Stroke::new(1.2, colors.text);
+            visuals.selection.bg_fill = colors.accent.gamma_multiply(0.42);
+            visuals.selection.stroke = Stroke::new(1.0, colors.text);
+            visuals.window_corner_radius = egui::CornerRadius::same(14);
+            visuals.menu_corner_radius = egui::CornerRadius::same(10);
+            visuals.widgets.noninteractive.corner_radius = egui::CornerRadius::same(9);
+            visuals.widgets.inactive.corner_radius = egui::CornerRadius::same(9);
+            visuals.widgets.hovered.corner_radius = egui::CornerRadius::same(9);
+            visuals.widgets.active.corner_radius = egui::CornerRadius::same(9);
             visuals.override_text_color = Some(colors.text);
             ctx.set_visuals(visuals);
         }
@@ -289,48 +307,67 @@ mod ui {
             let colors = palette(theme);
             Self::set_theme(&ctx, theme, colors);
             let mut style = (*ctx.global_style()).clone();
-            style.spacing.item_spacing = Vec2::new(10.0, 10.0);
+            style.spacing.item_spacing = Vec2::new(12.0, 12.0);
+            style.spacing.button_padding = Vec2::new(14.0, 9.0);
+            style.spacing.interact_size.y = 38.0;
+            style.spacing.window_margin = egui::Margin::same(18);
             ctx.set_global_style(style);
 
-            egui::TopBottomPanel::top("header").frame(egui::Frame::new().fill(colors.bg).inner_margin(egui::Margin::symmetric(24, 20))).show(&ctx, |ui| {
+            egui::TopBottomPanel::top("header").frame(egui::Frame::new().fill(colors.bg).inner_margin(egui::Margin::symmetric(28, 17))).show(&ctx, |ui| {
                 ui.horizontal(|ui| {
-                    ui.label(RichText::new("NikitaVPNClient").size(25.0).strong().color(colors.text));
-                    ui.add_space(12.0);
-                    ui.label(RichText::new("SECURE DESKTOP").size(11.0).strong().color(colors.accent));
+                    egui::Frame::new().fill(colors.accent).corner_radius(11).inner_margin(egui::Margin::symmetric(11, 7)).show(ui, |ui| {
+                        ui.label(RichText::new("N").size(20.0).strong().color(Color32::WHITE));
+                    });
+                    ui.add_space(3.0);
+                    ui.vertical(|ui| {
+                        ui.label(RichText::new("NikitaVPNClient").size(20.0).strong().color(colors.text));
+                        ui.label(RichText::new("PRIVATE NETWORK · XRAY CORE").size(9.0).strong().color(colors.muted));
+                    });
                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                         let online = self.runtime.is_some();
-                        let (dot, label) = if online { (GREEN, "ПОДКЛЮЧЕНО") } else { (colors.muted, "НЕ ПОДКЛЮЧЕНО") };
-                        ui.label(RichText::new(label).size(11.0).strong().color(dot));
-                        ui.label(RichText::new("●").color(dot));
+                        let (dot, label) = if online { (GREEN, "ЗАЩИЩЕНО") } else { (colors.muted, "НЕ ПОДКЛЮЧЕНО") };
+                        egui::Frame::new().fill(if online { GREEN.gamma_multiply(0.13) } else { colors.panel }).corner_radius(18).inner_margin(egui::Margin::symmetric(13, 8)).show(ui, |ui| {
+                            ui.horizontal(|ui| {
+                                ui.label(RichText::new("●").size(10.0).color(dot));
+                                ui.label(RichText::new(label).size(10.0).strong().color(if online { GREEN } else { colors.muted }));
+                            });
+                        });
                     });
                 });
-                ui.add_space(4.0);
-                ui.label(RichText::new("Защищённый доступ через Xray-core").size(13.0).color(colors.muted));
             });
-            egui::TopBottomPanel::bottom("status").frame(egui::Frame::new().fill(colors.panel).inner_margin(egui::Margin::symmetric(24, 13))).show(&ctx, |ui| {
+            egui::TopBottomPanel::bottom("status").frame(egui::Frame::new().fill(colors.panel).inner_margin(egui::Margin::symmetric(26, 10))).show(&ctx, |ui| {
                 ui.horizontal(|ui| {
-                    ui.label(RichText::new(if self.runtime.is_some() { "●" } else { "○" }).color(if self.runtime.is_some() { GREEN } else { colors.muted }));
-                    ui.label(RichText::new(&self.status).color(Color32::from_rgb(209, 217, 230)));
-                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| { ui.label(RichText::new(format!("{} серверов", self.store.state().profiles.len())).color(colors.muted).small()); });
+                    ui.label(RichText::new("●").size(9.0).color(if self.runtime.is_some() { GREEN } else { colors.muted }));
+                    ui.label(RichText::new(&self.status).size(12.0).color(colors.text));
+                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                        ui.label(RichText::new(format!("{} узлов", self.store.state().profiles.len())).size(11.0).color(colors.muted));
+                        ui.label(RichText::new("·").color(colors.muted));
+                        ui.label(RichText::new(format!("v{}", env!("CARGO_PKG_VERSION"))).size(11.0).color(colors.muted));
+                    });
                 });
             });
-            egui::SidePanel::left("navigation").resizable(false).exact_width(206.0).frame(egui::Frame::new().fill(colors.panel).inner_margin(egui::Margin::symmetric(14, 18))).show(&ctx, |ui| {
-                ui.label(RichText::new("ПОДКЛЮЧЕНИЕ").size(10.0).strong().color(colors.muted)); ui.add_space(10.0);
-                nav(ui, &mut self.tab, Tab::Servers, "◈", "Серверы", colors);
+            egui::SidePanel::left("navigation").resizable(false).exact_width(224.0).frame(egui::Frame::new().fill(colors.panel).inner_margin(egui::Margin::symmetric(17, 20))).show(&ctx, |ui| {
+                ui.label(RichText::new("РАБОЧЕЕ ПРОСТРАНСТВО").size(9.0).strong().color(colors.muted)); ui.add_space(12.0);
+                nav(ui, &mut self.tab, Tab::Servers, "◈", "Подключение", colors);
                 nav(ui, &mut self.tab, Tab::Subscriptions, "↻", "Подписки", colors);
-                ui.add_space(22.0); ui.label(RichText::new("ПРИЛОЖЕНИЕ").size(10.0).strong().color(colors.muted)); ui.add_space(10.0);
+                ui.add_space(20.0); ui.label(RichText::new("ПАРАМЕТРЫ КЛИЕНТА").size(9.0).strong().color(colors.muted)); ui.add_space(12.0);
                 nav(ui, &mut self.tab, Tab::Settings, "⚙", "Настройки", colors);
                 ui.with_layout(Layout::bottom_up(Align::Min), |ui| {
-                    ui.label(RichText::new(format!("NikitaVPNClient · {}", env!("CARGO_PKG_VERSION"))).size(11.0).color(colors.muted));
-                    ui.label(RichText::new("Powered by Xray-core").size(10.0).color(colors.muted));
+                    egui::Frame::new().fill(colors.card).corner_radius(12).inner_margin(egui::Margin::symmetric(12, 12)).show(ui, |ui| {
+                        ui.label(RichText::new("Ваш трафик — под контролем").size(11.0).strong().color(colors.text));
+                        ui.add_space(3.0);
+                        ui.label(RichText::new("Локальное управление через Xray-core").size(10.0).color(colors.muted));
+                    });
                 });
             });
-            egui::CentralPanel::default().frame(egui::Frame::new().fill(colors.bg).inner_margin(egui::Margin::symmetric(28, 24))).show(&ctx, |ui| {
-                match self.tab {
-                    Tab::Servers => self.servers(ui, &ctx),
-                    Tab::Subscriptions => self.subscriptions(ui),
-                    Tab::Settings => self.settings(ui),
-                }
+            egui::CentralPanel::default().frame(egui::Frame::new().fill(colors.bg).inner_margin(egui::Margin::symmetric(30, 25))).show(&ctx, |ui| {
+                egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
+                    match self.tab {
+                        Tab::Servers => self.servers(ui, &ctx),
+                        Tab::Subscriptions => self.subscriptions(ui),
+                        Tab::Settings => self.settings(ui),
+                    }
+                });
             });
             ctx.request_repaint_after(Duration::from_secs(1));
         }
@@ -369,81 +406,190 @@ mod ui {
 
     fn nav(ui: &mut egui::Ui, current: &mut Tab, target: Tab, icon: &str, label: &str, colors: Palette) {
         let active = *current == target;
-        let frame = if active { egui::Frame::new().fill(colors.card).corner_radius(8).stroke(Stroke::new(1.0, colors.accent.gamma_multiply(0.45))) } else { egui::Frame::new() };
-        frame.inner_margin(egui::Margin::symmetric(10, 10)).show(ui, |ui| {
-            if ui.add(egui::Button::new(RichText::new(format!("{icon}    {label}")).color(if active { colors.text } else { colors.muted })).fill(Color32::TRANSPARENT).frame(false).min_size(Vec2::new(160.0, 24.0))).clicked() { *current = target; }
+        let background = if active { colors.accent.gamma_multiply(0.16) } else { Color32::TRANSPARENT };
+        egui::Frame::new().fill(background).corner_radius(10).inner_margin(egui::Margin::symmetric(10, 3)).show(ui, |ui| {
+            ui.horizontal(|ui| {
+                ui.add_space(2.0);
+                ui.label(RichText::new(icon).size(16.0).strong().color(if active { colors.accent } else { colors.muted }));
+                let button = egui::Button::new(RichText::new(label).size(13.0).strong().color(if active { colors.text } else { colors.muted }))
+                    .fill(Color32::TRANSPARENT).frame(false).min_size(Vec2::new(145.0, 34.0));
+                if ui.add(button).clicked() { *current = target; }
+            });
         });
+        ui.add_space(3.0);
     }
     impl IncyApp {
         fn servers(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
             let colors = palette(self.store.state().settings.theme);
-            ui.horizontal(|ui| { ui.heading(RichText::new("Серверы").size(25.0).strong()); ui.with_layout(Layout::right_to_left(Align::Center), |ui| { ui.label(RichText::new("Выберите узел для подключения").color(colors.muted)); }); });
-            ui.add_space(16.0);
-            ui.horizontal(|ui| {
-                ui.add(egui::TextEdit::singleline(&mut self.search).hint_text("Поиск серверов…").desired_width(260.0));
-                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                    if self.runtime.is_some() {
-                        if ui.add(egui::Button::new(RichText::new("Отключить").strong()).fill(Color32::from_rgb(150, 57, 66)).min_size(Vec2::new(120.0, 38.0))).clicked() {
-                            if let Some(run) = self.runtime.take() {
-                                self.active_http_port = None;
-                                match run.stop() { Ok(()) => self.status = "Подключение остановлено; системный прокси восстановлен".into(), Err(_) => self.status = "Подключение остановлено, но системный прокси не удалось восстановить автоматически".into() }
-                            }
-                        }
-                    } else if let Some(id) = self.selected.or(self.store.state().selected_profile) {
-                        if ui.add(egui::Button::new(RichText::new("▶  Подключить").strong()).fill(colors.accent).min_size(Vec2::new(138.0, 38.0))).clicked() { self.connect(id); }
-                    }
-                });
-            });
-            ui.add_space(14.0);
             let profiles = self.store.state().profiles.clone();
             let selected = self.selected.or(self.store.state().selected_profile);
-            egui::ScrollArea::vertical().max_height(360.0).show(ui, |ui| {
-                for profile in profiles.iter().filter(|p| p.name.to_lowercase().contains(&self.search.to_lowercase()) || p.endpoint.address.to_lowercase().contains(&self.search.to_lowercase())) {
-                    let active = selected == Some(profile.id);
-                    let frame = egui::Frame::new().fill(if active { Color32::from_rgb(29, 41, 65) } else { colors.panel }).stroke(Stroke::new(if active { 1.2 } else { 0.6 }, if active { colors.accent } else { colors.card })).corner_radius(10).inner_margin(14);
-                    frame.show(ui, |ui| {
-                        ui.horizontal(|ui| {
-                            ui.radio(active, "").clicked().then(|| { self.selected = Some(profile.id); let _ = self.store.select(Some(profile.id)); });
-                            ui.vertical(|ui| {
-                                ui.label(RichText::new(&profile.name).strong().size(15.0).color(colors.text));
-                                let detail = if profile.raw_xray_config.is_some() { "Полная конфигурация Xray · пользовательские маршруты".to_owned() } else { format!("{} · {}:{}", profile.endpoint.summary(), profile.endpoint.address, profile.endpoint.port) };
-                                ui.label(RichText::new(detail).size(12.0).color(colors.muted));
-                            });
-                            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                                if self.runtime.is_none() && ui.small_button("Удалить").clicked() { let _ = self.store.remove_profile(profile.id); self.selected = self.store.state().selected_profile; }
-                            });
+            let chosen = profiles.iter().find(|profile| Some(profile.id) == selected);
+            let online = self.runtime.is_some();
+
+            ui.label(RichText::new("Безопасное подключение").size(27.0).strong().color(colors.text));
+            ui.label(RichText::new("Подключитесь к приватной сети одним нажатием").size(13.0).color(colors.muted));
+            ui.add_space(17.0);
+
+            egui::Frame::new()
+                .fill(colors.panel)
+                .stroke(Stroke::new(1.0, if online { GREEN.gamma_multiply(0.45) } else { colors.card }))
+                .corner_radius(18)
+                .inner_margin(egui::Margin::symmetric(23, 21))
+                .show(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        let (icon_color, headline, caption) = if online {
+                            (GREEN, "Вы в безопасности", "Зашифрованное соединение активно")
+                        } else {
+                            (colors.accent, "Готовы к защите?", "Ваше подключение пока не защищено")
+                        };
+                        egui::Frame::new().fill(icon_color.gamma_multiply(0.16)).corner_radius(16).inner_margin(egui::Margin::same(13)).show(ui, |ui| {
+                            ui.label(RichText::new(if online { "✓" } else { "↗" }).size(25.0).strong().color(icon_color));
+                        });
+                        ui.add_space(6.0);
+                        ui.vertical(|ui| {
+                            ui.label(RichText::new(headline).size(20.0).strong().color(colors.text));
+                            ui.label(RichText::new(caption).size(12.0).color(colors.muted));
+                            ui.add_space(5.0);
+                            if let Some(profile) = chosen {
+                                let detail = if profile.raw_xray_config.is_some() {
+                                    format!("{} · Xray config", profile.name)
+                                } else {
+                                    format!("{} · {}:{}", profile.name, profile.endpoint.address, profile.endpoint.port)
+                                };
+                                ui.label(RichText::new(detail).size(12.0).color(colors.text));
+                            } else {
+                                ui.label(RichText::new("Сначала выберите сервер ниже").size(12.0).color(colors.muted));
+                            }
+                        });
+                        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                            if online {
+                                if ui.add(egui::Button::new(RichText::new("Отключиться").size(14.0).strong()).fill(Color32::from_rgb(156, 61, 75)).min_size(Vec2::new(146.0, 48.0))).clicked() {
+                                    if let Some(run) = self.runtime.take() {
+                                        self.active_http_port = None;
+                                        match run.stop() {
+                                            Ok(()) => self.status = "Подключение остановлено; системный прокси восстановлен".into(),
+                                            Err(_) => self.status = "Остановлено, но прокси не удалось восстановить автоматически".into(),
+                                        }
+                                    }
+                                }
+                            } else if let Some(id) = selected {
+                                if ui.add(egui::Button::new(RichText::new("Подключиться  →").size(14.0).strong()).fill(colors.accent).min_size(Vec2::new(164.0, 48.0))).clicked() {
+                                    self.connect(id);
+                                }
+                            } else {
+                                ui.add_enabled(false, egui::Button::new(RichText::new("Выберите сервер").size(13.0).strong()).min_size(Vec2::new(164.0, 48.0)));
+                            }
                         });
                     });
-                    ui.add_space(7.0);
-                }
-            });
-            ui.add_space(14.0);
-            card(ui, "Добавить сервер по ссылке", colors, |ui| {
-                ui.horizontal(|ui| {
-                    ui.add(egui::TextEdit::singleline(&mut self.link_input).hint_text("vless://… / vmess://… / trojan://…").desired_width(f32::INFINITY));
-                    if ui.add(egui::Button::new("Импортировать").fill(colors.accent)).clicked() { self.add_link(); }
-                });
-                ui.label(RichText::new("Импортируемые протоколы: VLESS, VMess, Trojan, Shadowsocks, SOCKS5, Hysteria2, WireGuard").small().color(colors.muted));
-            });
-            ui.add_space(9.0);
-            card(ui, "Импорт полного Xray JSON", colors, |ui| {
-                ui.add(egui::TextEdit::singleline(&mut self.config_name).hint_text("Название профиля").desired_width(360.0));
-                ui.add(egui::TextEdit::multiline(&mut self.config_input).code_editor().desired_rows(5).desired_width(f32::INFINITY).hint_text("{\\n  \\\"inbounds\\\": [...],\\n  \\\"outbounds\\\": [...]\\n}"));
-                ui.label(RichText::new("Конфигурация сохраняется локально; все входящие слушатели обязаны быть привязаны только к localhost/loopback.").small().color(colors.muted));
-                if ui.add(egui::Button::new("Импортировать полный конфиг").fill(colors.accent)).clicked() { self.add_xray_config(); }
-            });
-            if self.runtime.is_some() {
-                ui.add_space(12.0);
-                if let Some(port) = self.active_http_port {
-                    if ui.button("Проверить соединение (HTTPS)").clicked() {
-                        self.status = "Проверяю защищённый туннель…".into();
-                        match runtime::probe(port) { Ok(ms) => self.status = format!("Соединение работает · {} мс", ms.as_millis()), Err(e) => self.status = safe_error(e) }
+                    if online {
+                        ui.add_space(16.0);
+                        ui.separator();
+                        ui.horizontal(|ui| {
+                            ui.label(RichText::new("●  ТУННЕЛЬ АКТИВЕН").size(10.0).strong().color(GREEN));
+                            ui.add_space(12.0);
+                            if let Some(port) = self.active_http_port {
+                                if ui.small_button("Проверить соединение").clicked() {
+                                    self.status = "Проверяю защищённый туннель…".into();
+                                    match runtime::probe(port) {
+                                        Ok(ms) => self.status = format!("Соединение работает · {} мс", ms.as_millis()),
+                                        Err(error) => self.status = safe_error(error),
+                                    }
+                                }
+                            } else {
+                                ui.label(RichText::new("Проверка недоступна для импортированной конфигурации").size(11.0).color(colors.muted));
+                            }
+                        });
                     }
-                } else {
-                    ui.label(RichText::new("В импортированной конфигурации нет HTTP inbound для встроенной проверки.").small().color(colors.muted));
+                });
+
+            ui.add_space(20.0);
+            ui.horizontal(|ui| {
+                ui.vertical(|ui| {
+                    ui.label(RichText::new("Ваши серверы").size(18.0).strong().color(colors.text));
+                    ui.label(RichText::new(format!("{} узлов сохранено на этом устройстве", profiles.len())).size(11.0).color(colors.muted));
+                });
+                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                    ui.add(egui::TextEdit::singleline(&mut self.search).hint_text("⌕  Найти сервер").desired_width(205.0));
+                });
+            });
+            ui.add_space(10.0);
+
+            let needle = self.search.to_lowercase();
+            let visible: Vec<_> = profiles.iter().filter(|profile| {
+                profile.name.to_lowercase().contains(&needle)
+                    || profile.endpoint.address.to_lowercase().contains(&needle)
+            }).collect();
+            if visible.is_empty() {
+                egui::Frame::new().fill(colors.panel).corner_radius(13).inner_margin(egui::Margin::same(20)).show(ui, |ui| {
+                    ui.vertical_centered(|ui| {
+                        ui.label(RichText::new(if profiles.is_empty() { "Пока нет серверов" } else { "Ничего не найдено" }).size(15.0).strong().color(colors.text));
+                        ui.label(RichText::new(if profiles.is_empty() { "Импортируйте ссылку или добавьте подписку, чтобы начать." } else { "Попробуйте изменить запрос поиска." }).size(12.0).color(colors.muted));
+                    });
+                });
+            } else {
+                for profile in visible {
+                    let active = selected == Some(profile.id);
+                    let border = if active { colors.accent.gamma_multiply(0.72) } else { colors.card };
+                    egui::Frame::new()
+                        .fill(if active { colors.accent.gamma_multiply(0.09) } else { colors.panel })
+                        .stroke(Stroke::new(if active { 1.2 } else { 0.7 }, border))
+                        .corner_radius(13)
+                        .inner_margin(egui::Margin::symmetric(15, 11))
+                        .show(ui, |ui| {
+                            ui.horizontal(|ui| {
+                                let (marker, marker_color) = if active { ("●", colors.accent) } else { ("○", colors.muted) };
+                                if ui.add(egui::Button::new(RichText::new(marker).size(16.0).color(marker_color)).frame(false)).clicked() {
+                                    self.selected = Some(profile.id);
+                                    let _ = self.store.select(Some(profile.id));
+                                }
+                                ui.vertical(|ui| {
+                                    ui.label(RichText::new(&profile.name).size(14.0).strong().color(colors.text));
+                                    let detail = if profile.raw_xray_config.is_some() {
+                                        "Полная конфигурация Xray".to_owned()
+                                    } else {
+                                        format!("{}  ·  {}:{}", profile.endpoint.summary(), profile.endpoint.address, profile.endpoint.port)
+                                    };
+                                    ui.label(RichText::new(detail).size(11.0).color(colors.muted));
+                                });
+                                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                                    if active {
+                                        egui::Frame::new().fill(colors.accent.gamma_multiply(0.17)).corner_radius(12).inner_margin(egui::Margin::symmetric(10, 5)).show(ui, |ui| {
+                                            ui.label(RichText::new("ВЫБРАН").size(9.0).strong().color(colors.accent));
+                                        });
+                                    }
+                                    if self.runtime.is_none() && ui.small_button("Удалить").clicked() {
+                                        let _ = self.store.remove_profile(profile.id);
+                                        self.selected = self.store.state().selected_profile;
+                                    }
+                                });
+                            });
+                        });
+                    ui.add_space(6.0);
                 }
             }
-            if self.store.state().profiles.is_empty() { ctx.request_repaint_after(Duration::from_secs(2)); }
+
+            ui.add_space(10.0);
+            egui::CollapsingHeader::new(RichText::new("＋  Добавить сервер или конфигурацию").strong().color(colors.text))
+                .default_open(profiles.is_empty())
+                .show(ui, |ui| {
+                    ui.add_space(5.0);
+                    card(ui, "Импорт по ссылке", colors, |ui| {
+                        ui.horizontal(|ui| {
+                            ui.add(egui::TextEdit::singleline(&mut self.link_input).hint_text("vless://…  vmess://…  trojan://…").desired_width(f32::INFINITY));
+                            if ui.add(egui::Button::new("Импортировать").fill(colors.accent)).clicked() { self.add_link(); }
+                        });
+                        ui.label(RichText::new("VLESS · VMess · Trojan · Shadowsocks · SOCKS5 · Hysteria2 · WireGuard").size(10.0).color(colors.muted));
+                    });
+                    ui.add_space(8.0);
+                    card(ui, "Импорт полного Xray JSON", colors, |ui| {
+                        ui.add(egui::TextEdit::singleline(&mut self.config_name).hint_text("Название профиля").desired_width(360.0));
+                        ui.add(egui::TextEdit::multiline(&mut self.config_input).code_editor().desired_rows(4).desired_width(f32::INFINITY).hint_text("{\n  \"inbounds\": [...],\n  \"outbounds\": [...]\n}"));
+                        ui.label(RichText::new("Входящие слушатели должны быть привязаны только к localhost/loopback.").size(10.0).color(colors.muted));
+                        if ui.add(egui::Button::new("Импортировать конфигурацию").fill(colors.accent)).clicked() { self.add_xray_config(); }
+                    });
+                });
+
+            if profiles.is_empty() { ctx.request_repaint_after(Duration::from_secs(2)); }
         }
         fn subscriptions(&mut self, ui: &mut egui::Ui) {
             let colors = palette(self.store.state().settings.theme);
@@ -547,7 +693,16 @@ mod ui {
         }
     }
     fn card(ui: &mut egui::Ui, title: &str, colors: Palette, add: impl FnOnce(&mut egui::Ui)) {
-        egui::Frame::new().fill(colors.panel).stroke(Stroke::new(0.7, colors.card)).corner_radius(10).inner_margin(16).show(ui, |ui| { ui.label(RichText::new(title).size(14.0).strong().color(colors.text)); ui.add_space(8.0); add(ui); });
+        egui::Frame::new()
+            .fill(colors.panel)
+            .stroke(Stroke::new(0.8, colors.card))
+            .corner_radius(13)
+            .inner_margin(egui::Margin::symmetric(17, 15))
+            .show(ui, |ui| {
+                ui.label(RichText::new(title).size(14.0).strong().color(colors.text));
+                ui.add_space(9.0);
+                add(ui);
+            });
     }
     fn safe_error(error: Error) -> String {
         match error {
