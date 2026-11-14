@@ -12,6 +12,7 @@ eframe.workspace = true
 incy-core.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+tray-icon = { version = "0.26.1", default-features = false, features = ["ksni"] }
 uuid.workspace = true
 
 [[bin]]

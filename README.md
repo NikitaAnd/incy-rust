@@ -98,7 +98,9 @@ artifacts through the **Build NikitaVPNClient** GitHub Actions workflow.
 
 - Native desktop UI with local profile management, search, five color themes,
   share-link/full-JSON import, HTTPS subscriptions with background refresh, and
-  connect/disconnect.
+  connect/disconnect. The app also has a cross-platform system-tray menu to show
+  the window, toggle the selected profile, or quit; closing the window hides it
+  when tray initialization succeeds.
 - VLESS, VMess, Trojan, Shadowsocks, SOCKS5, Hysteria2 and WireGuard link
   parsing; Xray JSON generation and loopback-only SOCKS/HTTP inbounds.
 - Xray process supervision, optional per-user system proxy on Windows, macOS
@@ -109,8 +111,10 @@ artifacts through the **Build NikitaVPNClient** GitHub Actions workflow.
 
 ### Not implemented yet
 
-Kill switch, TUN mode, per-application routing, tray icon, QR import/export,
-and complete parity with the existing INCY desktop client are not implemented.
+Kill switch, TUN mode, per-application routing, QR import/export, and complete
+parity with the existing INCY desktop client are not implemented. The tray menu
+is implemented, but availability depends on a desktop environment that supports
+StatusNotifierItem (Linux) or the native tray (Windows/macOS).
 System proxy mode is not a kill switch: applications can bypass it, and network
 traffic is not guaranteed to stop if Xray exits. Imported Xray JSON is preserved
 and passed to Xray at runtime, but is restricted to loopback-bound inbound
@@ -126,7 +130,7 @@ are also pending. Do not rely on this experimental build as a security boundary.
 | **TLS fragmentation** | ✅ | ✅ | ✅ Xray TLS ClientHello |
 | **Kill switch / TUN** | ✅ | ✅ | — |
 | **Per-app proxy** | Android | ✅ | — |
-| **Tray / QR / TV pairing** | ✅ | ✅ | — |
+| **Tray / QR / TV pairing** | ✅ | ✅ | ✅ tray / — QR |
 | **Themes** | ✅ | ✅ | ✅ graphite/light/midnight/ocean/forest |
 
 The Rust client has no telemetry. Servers, credentials and subscriptions are

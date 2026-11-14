@@ -120,6 +120,8 @@ mod ui {
         active_http_port: Option<u16>,
         refreshing: HashSet<Uuid>,
         last_auto_refresh: Instant,
+        tray: Option<tray_icon::TrayIcon>,
+        tray_error: Option<String>,
     }
     struct DownloadResult { intent: DownloadIntent, result: incy_core::Result<subscription::Download> }
     enum DownloadIntent { Refresh(Uuid), Add { name: String, url: String } }
@@ -130,7 +132,8 @@ mod ui {
             let routing_editor = serde_json::to_string_pretty(&store.state().settings.routing).unwrap_or_default();
             let xray_path = store.state().settings.xray_path.as_ref().map(|p| p.display().to_string()).unwrap_or_default();
             let (download_tx, download_rx) = mpsc::channel();
-            Self { store, runtime: None, tab: Tab::Servers, search: String::new(), link_input: String::new(), config_input: String::new(), config_name: "Imported Xray config".into(), sub_name: String::new(), sub_url: String::new(), status: "Готово к подключению".into(), selected, routing_editor, xray_path, download_tx, download_rx, active_http_port: None, refreshing: HashSet::new(), last_auto_refresh: Instant::now() - Duration::from_secs(60) }
+            let (tray, tray_error) = create_tray();
+            Self { store, runtime: None, tab: Tab::Servers, search: String::new(), link_input: String::new(), config_input: String::new(), config_name: "Imported Xray config".into(), sub_name: String::new(), sub_url: String::new(), status: "Готово к подключению".into(), selected, routing_editor, xray_path, download_tx, download_rx, active_http_port: None, refreshing: HashSet::new(), last_auto_refresh: Instant::now() - Duration::from_secs(60), tray, tray_error }
         }
         fn begin_download(&mut self, intent: DownloadIntent, url: String) {
             self.status = "Загружаю подписку…".into();
@@ -226,6 +229,33 @@ mod ui {
         fn ui(&mut self, root_ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
             let ctx = root_ui.ctx().clone();
             self.finish_downloads();
+            while let Ok(event) = tray_icon::menu::MenuEvent::receiver().try_recv() {
+                match event.id.as_ref() {
+                    "open" => {
+                        ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
+                        ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
+                    }
+                    "toggle" => {
+                        if let Some(run) = self.runtime.take() {
+                            match run.stop() {
+                                Ok(()) => self.status = "Подключение остановлено; системный прокси восстановлен".into(),
+                                Err(_) => self.status = "Подключение остановлено, но системный прокси не удалось восстановить автоматически".into(),
+                            }
+                            self.active_http_port = None;
+                        } else if let Some(id) = self.selected {
+                            self.connect(id);
+                        } else {
+                            self.status = "Сначала выберите сервер".into();
+                        }
+                    }
+                    "quit" => ctx.send_viewport_cmd(egui::ViewportCommand::Close),
+                    _ => {}
+                }
+            }
+            if ctx.input(|input| input.viewport().close_requested()) && self.tray.is_some() {
+                ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+                ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
+            }
             if self.last_auto_refresh.elapsed() >= Duration::from_secs(20) {
                 self.last_auto_refresh = Instant::now();
                 for id in subscription::due(self.store.state()) { self.refresh_subscription(id); }
@@ -282,6 +312,37 @@ mod ui {
             });
             ctx.request_repaint_after(Duration::from_secs(1));
         }
+    }
+
+    fn create_tray() -> (Option<tray_icon::TrayIcon>, Option<String>) {
+        let result = (|| -> Result<tray_icon::TrayIcon, String> {
+            use tray_icon::menu::{Menu, MenuItem};
+            let mut menu = Menu::new();
+            for (id, title) in [("open", "Открыть NikitaVPNClient"), ("toggle", "Подключить / отключить"), ("quit", "Выход")] {
+                let item = MenuItem::with_id(id, title, true, None);
+                menu.append(&item).map_err(|error| error.to_string())?;
+            }
+            let mut rgba = vec![0_u8; 16 * 16 * 4];
+            for y in 1..15 {
+                for x in 2..14 {
+                    // A compact blue shield mark, generated in memory so the
+                    // app does not depend on an external icon file at runtime.
+                    let inside = y < 4 || (x >= 3 + (y - 4) / 2 && x <= 12 - (y - 4) / 2);
+                    if inside {
+                        let offset = (y * 16 + x) * 4;
+                        rgba[offset..offset + 4].copy_from_slice(&[82, 132, 255, 255]);
+                    }
+                }
+            }
+            let icon = tray_icon::Icon::from_rgba(rgba, 16, 16).map_err(|error| error.to_string())?;
+            tray_icon::TrayIconBuilder::new()
+                .with_tooltip("NikitaVPNClient")
+                .with_icon(icon)
+                .with_menu(Box::new(menu))
+                .build()
+                .map_err(|error| error.to_string())
+        })();
+        match result { Ok(tray) => (Some(tray), None), Err(error) => (None, Some(error)) }
     }
 
     fn nav(ui: &mut egui::Ui, current: &mut Tab, target: Tab, icon: &str, label: &str, colors: Palette) {
@@ -393,6 +454,16 @@ mod ui {
             let colors = palette(self.store.state().settings.theme);
             ui.heading(RichText::new("Настройки").size(25.0).strong());
             ui.label(RichText::new("Клиентский профиль и локальные правила").color(colors.muted)); ui.add_space(14.0);
+            card(ui, "Системный трей", colors, |ui| {
+                if self.tray.is_some() {
+                    ui.label(RichText::new("Значок активен. Закрытие окна сворачивает приложение в трей.").color(colors.text));
+                    ui.label(RichText::new("Через меню значка можно открыть окно, подключиться или отключиться, а также завершить приложение.").small().color(colors.muted));
+                } else {
+                    ui.label(RichText::new(format!("Системный трей недоступен: {}", self.tray_error.as_deref().unwrap_or("ошибка инициализации"))).color(Color32::from_rgb(238, 181, 105)));
+                    ui.label(RichText::new("Закрытие окна завершит приложение; подключение будет остановлено штатно.").small().color(colors.muted));
+                }
+            });
+            ui.add_space(10.0);
             card(ui, "Xray-core", colors, |ui| {
                 ui.label("Путь к исполняемому файлу (пусто — поиск рядом с приложением и в PATH)");
                 ui.add(egui::TextEdit::singleline(&mut self.xray_path).hint_text(if cfg!(windows) { "C:\\incy\\xray.exe" } else { "/usr/bin/xray" }).desired_width(f32::INFINITY));
