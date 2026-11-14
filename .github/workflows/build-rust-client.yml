@@ -90,9 +90,11 @@ jobs:
       - name: Bundle tun2socks userspace TUN engine
         shell: bash
         run: |
-          curl --fail --location --silent --show-error \
-            "https://github.com/xjasonlyu/tun2socks/releases/latest/download/${{ matrix.tun2socks_asset }}" \
-            --output build-assets/tun2socks.zip
+          url="https://github.com/xjasonlyu/tun2socks/releases/latest/download/${{ matrix.tun2socks_asset }}"
+          if ! curl --fail --location --silent --show-error "$url" --output build-assets/tun2socks.zip; then
+            echo "::error title=tun2socks download failed::$url"
+            exit 1
+          fi
           python - <<'PY'
           import os
           from pathlib import Path
@@ -100,9 +102,11 @@ jobs:
 
           expected = os.environ["TUN2SOCKS_EXECUTABLE"]
           with ZipFile("build-assets/tun2socks.zip") as archive:
-              matches = [item for item in archive.infolist() if Path(item.filename).name.lower() in {"tun2socks", "tun2socks.exe"}]
+              files = [item for item in archive.infolist() if not item.is_dir()]
+              matches = [item for item in files if Path(item.filename).name.lower().startswith("tun2socks") and not Path(item.filename).name.lower().endswith((".md", ".txt", ".json", ".yaml", ".yml"))]
               if len(matches) != 1:
-                  raise SystemExit(f"Expected one tun2socks executable in release archive; got {[item.filename for item in archive.infolist()]}")
+                  print(f"::error title=Unexpected tun2socks archive contents::{[item.filename for item in files]}")
+                  raise SystemExit(f"Expected one tun2socks executable in release archive; got {len(matches)} candidates")
               destination = Path("build-assets") / expected
               destination.write_bytes(archive.read(matches[0]))
               with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as env:
