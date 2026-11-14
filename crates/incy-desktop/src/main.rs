@@ -78,6 +78,7 @@ fn main() -> anyhow::Result<()> {
 }
 
 mod ui {
+    use crate::embedded_xray;
     use std::collections::HashSet;
     use std::sync::mpsc::{self, Receiver, Sender};
     use std::time::{Duration, Instant};
