@@ -31,16 +31,22 @@ jobs:
             binary: target/release/nikitavpnclient
             xray_asset: Xray-linux-64.zip
             xray_executable: xray
+            tun2socks_asset: tun2socks-linux-amd64.zip
+            tun2socks_executable: tun2socks
           - os: windows-2025
             suffix: windows-x86_64
             binary: target/release/nikitavpnclient.exe
             xray_asset: Xray-windows-64.zip
             xray_executable: xray.exe
+            tun2socks_asset: tun2socks-windows-amd64.zip
+            tun2socks_executable: tun2socks.exe
           - os: macos-15
             suffix: macos-arm64
             binary: target/release/nikitavpnclient
             xray_asset: Xray-macos-arm64-v8a.zip
             xray_executable: xray
+            tun2socks_asset: tun2socks-darwin-arm64.zip
+            tun2socks_executable: tun2socks
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -81,6 +87,29 @@ jobs:
           PY
         env:
           XRAY_EXECUTABLE: ${{ matrix.xray_executable }}
+      - name: Bundle tun2socks userspace TUN engine
+        shell: bash
+        run: |
+          curl --fail --location --silent --show-error \
+            "https://github.com/xjasonlyu/tun2socks/releases/download/v2.7.0/${{ matrix.tun2socks_asset }}" \
+            --output build-assets/tun2socks.zip
+          python - <<'PY'
+          import os
+          from pathlib import Path
+          from zipfile import ZipFile
+
+          expected = os.environ["TUN2SOCKS_EXECUTABLE"]
+          with ZipFile("build-assets/tun2socks.zip") as archive:
+              matches = [item for item in archive.infolist() if Path(item.filename).name == expected]
+              if len(matches) != 1:
+                  raise SystemExit(f"Expected exactly one {expected} in tun2socks release archive; got {len(matches)}")
+              destination = Path("build-assets") / expected
+              destination.write_bytes(archive.read(matches[0]))
+              with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as env:
+                  env.write(f"INCY_TUN2SOCKS_BINARY={destination.resolve()}\n")
+          PY
+        env:
+          TUN2SOCKS_EXECUTABLE: ${{ matrix.tun2socks_executable }}
       # CI resolves upstream eframe's optional (unused glow) dependencies too;
       # the offline dev vendor omits them, so refresh the lockfile here.
       - run: cargo generate-lockfile

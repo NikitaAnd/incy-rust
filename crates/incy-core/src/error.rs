@@ -32,6 +32,8 @@ pub enum Error {
     SystemProxy(String),
     #[error("Cannot change system proxy while connected")]
     Busy,
+    #[error("TUN setup failed: {0}")]
+    Tunnel(String),
     #[error("Local storage is unavailable: {0}")]
     Storage(String),
     #[error("File operation failed: {0}")]

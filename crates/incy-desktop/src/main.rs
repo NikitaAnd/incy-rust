@@ -7,6 +7,7 @@ static EMBEDDED_XRAY: incy_core::runtime::EmbeddedXray<'static> = incy_core::run
     executable: include_bytes!(env!("INCY_XRAY_BINARY")),
     geoip: include_bytes!(env!("INCY_GEOIP_BINARY")),
     geosite: include_bytes!(env!("INCY_GEOSITE_BINARY")),
+    tun2socks: include_bytes!(env!("INCY_TUN2SOCKS_BINARY")),
 };
 #[cfg(incy_embedded_xray)]
 fn embedded_xray() -> Option<incy_core::runtime::EmbeddedXray<'static>> { Some(EMBEDDED_XRAY) }
@@ -33,10 +34,17 @@ enum Command {
     Config { profile: Uuid },
     /// Print the path to the local state file.
     DataPath,
+    /// Internal pkexec entry point for privileged TUN setup/restore.
+    #[command(hide = true)]
+    TunAdmin { action: String, #[arg(long)] kill_switch: bool },
 }
 
 fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
+    if let Some(Command::TunAdmin { action, kill_switch }) = cli.command.as_ref() {
+        incy_core::tun::admin_command(action, *kill_switch)?;
+        return Ok(());
+    }
     let mut store = Store::open_default()?;
     match cli.command.unwrap_or(Command::Gui) {
         Command::Gui => {
@@ -73,6 +81,7 @@ fn main() -> anyhow::Result<()> {
             println!("{}", serde_json::to_string_pretty(&value)?);
         }
         Command::DataPath => println!("{}", store.path().display()),
+        Command::TunAdmin { .. } => unreachable!("handled before opening user data"),
     }
     Ok(())
 }
@@ -200,7 +209,8 @@ mod ui {
                 };
                 if profile.raw_xray_config.is_some() { config::apply_application_rules(&mut cfg, settings)?; }
                 let probe_port = if profile.raw_xray_config.is_some() { runtime::http_inbound_port(&cfg) } else { Some(settings.http_port) };
-                let run = runtime::Runtime::start(profile.id, &profile.name, cfg, settings, &xray)?;
+                let tun2socks = if settings.tun_mode { Some(runtime::find_tun2socks(embedded_xray())?) } else { None };
+                let run = runtime::Runtime::start(profile.id, &profile.name, cfg, settings, &xray, tun2socks.as_deref())?;
                 Ok((run, probe_port))
             })();
             match result { Ok((run, probe_port)) => { self.runtime = Some(run); self.active_http_port = probe_port; self.selected = Some(id); self.status = format!("Подключено: {}", profile.name); }, Err(e) => self.status = safe_error(e) }
@@ -486,12 +496,31 @@ mod ui {
                 let mut settings = self.store.state().settings.clone();
                 ui.horizontal(|ui| { ui.label("SOCKS5 порт"); ui.add(egui::DragValue::new(&mut settings.socks_port).range(1..=65535)); ui.label("HTTP порт"); ui.add(egui::DragValue::new(&mut settings.http_port).range(1..=65535)); });
                 ui.checkbox(&mut settings.set_system_proxy, "Устанавливать пользовательский системный прокси при подключении");
-                ui.label(RichText::new("Это не kill switch и не VPN/TUN: другие приложения могут обходить системный прокси.").small().color(Color32::from_rgb(238, 181, 105)));
+                ui.add_enabled(cfg!(target_os = "linux"), egui::Checkbox::new(&mut settings.tun_mode, "Полный системный трафик через TUN (Linux)"));
+                if !cfg!(target_os = "linux") {
+                    ui.label(RichText::new("TUN backend для Windows/macOS пока не подключён; режим нельзя включить в этой сборке.").small().color(Color32::from_rgb(238, 181, 105)));
+                }
+                if !settings.tun_mode { settings.kill_switch = false; }
+                ui.add_enabled(settings.tun_mode, egui::Checkbox::new(&mut settings.kill_switch, "Kill switch: блокировать исходящий трафик вне TUN"));
+                if settings.tun_mode {
+                    ui.label(RichText::new("TUN меняет таблицу маршрутизации и требует подтверждения администратора через pkexec. Kill switch создаёт отдельные nftables-правила; они сохраняются при аварийном завершении для защиты от утечки.").small().color(colors.muted));
+                } else {
+                    ui.label(RichText::new("Обычный системный прокси не является kill switch: приложения могут его обходить.").small().color(Color32::from_rgb(238, 181, 105)));
+                }
                 ui.horizontal(|ui| {
                     ui.label("Тема"); egui::ComboBox::from_id_salt("theme").selected_text(format!("{:?}", settings.theme)).show_ui(ui, |ui| { ui.selectable_value(&mut settings.theme, incy_core::Theme::Dark, "Графит"); ui.selectable_value(&mut settings.theme, incy_core::Theme::Light, "Светлая"); ui.selectable_value(&mut settings.theme, incy_core::Theme::Midnight, "Полночь"); ui.selectable_value(&mut settings.theme, incy_core::Theme::Ocean, "Океан"); ui.selectable_value(&mut settings.theme, incy_core::Theme::Forest, "Лес"); ui.selectable_value(&mut settings.theme, incy_core::Theme::System, "Системная (графит)"); });
                 });
                 if ui.add_enabled(self.runtime.is_none(), egui::Button::new("Сохранить параметры прокси и темы")).clicked() { let result = self.store.update_settings(settings); self.message(result, "Настройки сохранены"); }
             });
+            if self.runtime.is_none() && self.store.state().settings.tun_mode {
+                ui.add_space(10.0);
+                card(ui, "Восстановление TUN", colors, |ui| {
+                    ui.label(RichText::new("Если приложение завершилось аварийно, Linux намеренно оставляет маршруты и kill switch включёнными. Восстановление вернёт сохранённые маршруты.").small().color(colors.muted));
+                    if ui.button("Отключить TUN и восстановить маршруты").clicked() {
+                        self.message(incy_core::tun::restore_previous_state(), "Маршруты восстановлены; TUN остановлен");
+                    }
+                });
+            }
             ui.add_space(10.0);
             card(ui, "Маршрутизация по приложениям", colors, |ui| {
                 ui.label(RichText::new("Укажите имя executable по одному на строку. Xray применит правила, когда приложение подключается к локальному SOCKS/HTTP-прокси.").small().color(colors.muted));
@@ -501,7 +530,7 @@ mod ui {
                     columns[1].label("Напрямую");
                     columns[1].add(egui::TextEdit::multiline(&mut self.direct_apps_editor).code_editor().desired_rows(4).desired_width(f32::INFINITY).hint_text(if cfg!(windows) { "game.exe" } else { "game" }));
                 });
-                ui.label(RichText::new("Важно: это не перехват всего трафика процесса. Настройте само приложение на SOCKS5/HTTP адрес 127.0.0.1 и порт выше; приложения, обходящие локальный прокси, этими правилами не управляются.").small().color(Color32::from_rgb(238, 181, 105)));
+                ui.label(RichText::new("Это маршрутизирует только соединения приложений, которые сами используют локальный SOCKS/HTTP-прокси; произвольный трафик процесса не перехватывается. При включённом kill switch прямые outbound-блоки Xray превращаются в блокировку, а не в обход VPN.").small().color(Color32::from_rgb(238, 181, 105)));
                 if ui.button("Сохранить маршруты приложений").clicked() { self.save_settings(); }
             });
             ui.add_space(10.0);
@@ -527,6 +556,7 @@ mod ui {
             Error::PortInUse => "Локальный порт занят другим приложением.".into(),
             Error::XrayStartup | Error::XrayRejected(_) => "Xray не запустился. Проверьте конфигурацию и версию Xray-core.".into(),
             Error::SystemProxy(_) => "Не удалось изменить системный прокси; проверьте окружение рабочего стола и настройки.".into(),
+            Error::Tunnel(_) => "Не удалось безопасно настроить TUN. Проверьте права администратора, сетевые инструменты и состояние маршрутов.".into(),
             Error::Http(_) => "Не удалось загрузить подписку. Проверьте HTTPS-ссылку и доступность провайдера.".into(),
             _ => "Операция не выполнена; проверьте введённые данные.".into(),
         }

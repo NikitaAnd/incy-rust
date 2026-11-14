@@ -78,6 +78,23 @@ fn application_rules_route_proxy_aware_processes_to_selected_outbounds() {
 }
 
 #[test]
+fn tun_mode_marks_every_outbound_for_the_physical_route_table() {
+    let profile = vless();
+    let mut config = config::generate(&profile.endpoint, &Settings::default()).unwrap();
+    config::mark_outbounds_for_tun(&mut config).unwrap();
+    config::enforce_kill_switch(&mut config).unwrap();
+    for outbound in config["outbounds"].as_array().unwrap() {
+        assert_eq!(outbound["streamSettings"]["sockopt"]["mark"], 81);
+    }
+    assert_eq!(config["outbounds"][1]["protocol"], "blackhole");
+    let mut invalid = Settings::default();
+    invalid.kill_switch = true;
+    assert!(invalid.validate().is_err());
+    invalid.tun_mode = true;
+    assert!(invalid.validate().is_ok());
+}
+
+#[test]
 fn rejects_fragmentation_without_tls_and_hysteria() {
     let mut endpoint = vless().endpoint; endpoint.security = Security::None;
     let mut settings = Settings::default(); settings.fragment = Some(Default::default());

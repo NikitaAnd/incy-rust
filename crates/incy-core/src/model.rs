@@ -380,6 +380,12 @@ pub struct Settings {
     /// Executable names whose local proxy connections should use the direct outbound.
     #[serde(default)]
     pub direct_apps: Vec<String>,
+    /// Route all system IP traffic through a userspace TUN device when supported.
+    #[serde(default)]
+    pub tun_mode: bool,
+    /// Block non-tunnel egress while TUN is active. Requires tun_mode.
+    #[serde(default)]
+    pub kill_switch: bool,
     pub routing: Routing,
     pub fragment: Option<Fragment>,
     pub theme: Theme,
@@ -388,8 +394,8 @@ pub struct Settings {
 impl Default for Settings {
     fn default() -> Self {
         Self { xray_path: None, socks_port: 2080, http_port: 2081, set_system_proxy: false,
-            proxy_apps: Vec::new(), direct_apps: Vec::new(), routing: Routing::default(), fragment: None,
-            theme: Theme::Dark, language: Language::Ru }
+            proxy_apps: Vec::new(), direct_apps: Vec::new(), tun_mode: false, kill_switch: false,
+            routing: Routing::default(), fragment: None, theme: Theme::Dark, language: Language::Ru }
     }
 }
 impl Settings {
@@ -401,6 +407,9 @@ impl Settings {
             return Err(Error::InvalidProfile("empty Xray path".into()));
         }
         self.routing.validate()?;
+        if self.kill_switch && !self.tun_mode {
+            return Err(Error::InvalidProfile("kill switch requires TUN mode".into()));
+        }
         validate_app_names(&self.proxy_apps, "proxy")?;
         validate_app_names(&self.direct_apps, "direct")?;
         let direct: std::collections::HashSet<String> = self.direct_apps.iter().map(|n| n.to_lowercase()).collect();

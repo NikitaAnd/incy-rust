@@ -12,6 +12,7 @@ pub mod share_link;
 pub mod store;
 pub mod subscription;
 pub mod system_proxy;
+pub mod tun;
 
 pub use error::{Error, Result};
 pub use model::{AppState, Endpoint, Language, Profile, Protocol, Routing, Security, Settings, Theme};

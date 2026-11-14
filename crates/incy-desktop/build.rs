@@ -2,15 +2,15 @@ use std::{env, path::PathBuf};
 
 fn main() {
     println!("cargo:rustc-check-cfg=cfg(incy_embedded_xray)");
-    for name in ["INCY_XRAY_BINARY", "INCY_GEOIP_BINARY", "INCY_GEOSITE_BINARY"] {
+    for name in ["INCY_XRAY_BINARY", "INCY_GEOIP_BINARY", "INCY_GEOSITE_BINARY", "INCY_TUN2SOCKS_BINARY"] {
         println!("cargo:rerun-if-env-changed={name}");
     }
-    let assets = ["INCY_XRAY_BINARY", "INCY_GEOIP_BINARY", "INCY_GEOSITE_BINARY"]
+    let assets = ["INCY_XRAY_BINARY", "INCY_GEOIP_BINARY", "INCY_GEOSITE_BINARY", "INCY_TUN2SOCKS_BINARY"]
         .map(|name| (name, env::var(name).ok()));
     let provided = assets.iter().filter(|(_, path)| path.is_some()).count();
     if provided == 0 { return; }
     if provided != assets.len() {
-        panic!("Bundle builds require INCY_XRAY_BINARY, INCY_GEOIP_BINARY and INCY_GEOSITE_BINARY");
+        panic!("Bundle builds require INCY_XRAY_BINARY, INCY_GEOIP_BINARY, INCY_GEOSITE_BINARY and INCY_TUN2SOCKS_BINARY");
     }
     for (name, value) in assets {
         let path = PathBuf::from(value.expect("checked above"));

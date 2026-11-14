@@ -133,13 +133,15 @@ pub fn generate(endpoint: &Endpoint, settings: &Settings) -> Result<Value> {
     }
     let r = &settings.routing;
     let mut rules = vec![json!({"type": "field", "inboundTag": ["socks-in", "http-in"], "port": 53, "network": "udp", "outboundTag": "dns-out"})];
+    if !r.block_domains.is_empty() { rules.push(json!({"type": "field", "domain": r.block_domains, "outboundTag": "block"})); }
+    if !r.block_ips.is_empty() { rules.push(json!({"type": "field", "ip": r.block_ips, "outboundTag": "block"})); }
     if !settings.proxy_apps.is_empty() {
         rules.push(json!({"type": "field", "inboundTag": ["socks-in", "http-in"], "process": settings.proxy_apps, "outboundTag": "proxy"}));
     }
     if !settings.direct_apps.is_empty() {
         rules.push(json!({"type": "field", "inboundTag": ["socks-in", "http-in"], "process": settings.direct_apps, "outboundTag": "direct"}));
     }
-    for (domains, ips, tag) in [(&r.block_domains, &r.block_ips, "block"), (&r.proxy_domains, &r.proxy_ips, "proxy"), (&r.direct_domains, &r.direct_ips, "direct")] {
+    for (domains, ips, tag) in [(&r.proxy_domains, &r.proxy_ips, "proxy"), (&r.direct_domains, &r.direct_ips, "direct")] {
         if !domains.is_empty() { rules.push(json!({"type": "field", "domain": domains, "outboundTag": tag})); }
         if !ips.is_empty() { rules.push(json!({"type": "field", "ip": ips, "outboundTag": tag})); }
     }
@@ -178,6 +180,43 @@ fn apply_security(stream: &mut Map<String, Value>, security: &Security, address:
     Ok(())
 }
 
+/// Make imported and generated configs fail closed when a kill switch is on:
+/// freedom outbounds become blackholes, so direct/LAN rules cannot send payload
+/// around the proxy tunnel.
+pub fn enforce_kill_switch(config: &mut Value) -> Result<()> {
+    let outbounds = config.get_mut("outbounds").and_then(Value::as_array_mut)
+        .ok_or_else(|| Error::InvalidProfile("kill switch needs an outbounds array".into()))?;
+    for outbound in outbounds {
+        if outbound.get("protocol").and_then(Value::as_str) == Some("freedom")
+            && outbound.get("tag").and_then(Value::as_str) != Some("fragment") {
+            outbound["protocol"] = json!("blackhole");
+            outbound.as_object_mut().ok_or_else(|| Error::InvalidProfile("invalid Xray outbound".into()))?.remove("settings");
+        }
+    }
+    Ok(())
+}
+
+/// Route Xray's own outbound sockets through the physical-route policy table
+/// installed by the Linux TUN backend. Other system sockets continue through
+/// the TUN device.
+pub fn mark_outbounds_for_tun(config: &mut Value) -> Result<()> {
+    let outbounds = config.get_mut("outbounds").and_then(Value::as_array_mut)
+        .ok_or_else(|| Error::InvalidProfile("TUN mode needs an outbounds array".into()))?;
+    for outbound in outbounds {
+        if !outbound.is_object() { return Err(Error::InvalidProfile("invalid Xray outbound".into())); }
+        if !outbound.get("streamSettings").is_some_and(Value::is_object) {
+            outbound["streamSettings"] = json!({});
+        }
+        let stream = outbound.get_mut("streamSettings").and_then(Value::as_object_mut)
+            .ok_or_else(|| Error::InvalidProfile("Xray streamSettings must be an object".into()))?;
+        if !stream.get("sockopt").is_some_and(Value::is_object) { stream.insert("sockopt".into(), json!({})); }
+        stream.get_mut("sockopt").and_then(Value::as_object_mut)
+            .ok_or_else(|| Error::InvalidProfile("Xray sockopt must be an object".into()))?
+            .insert("mark".into(), json!(81));
+    }
+    Ok(())
+}
+
 /// Add per-application rules to an imported config. Xray's process matcher
 /// identifies the local process that opened a SOCKS/HTTP inbound connection;
 /// it does not capture direct traffic from apps that bypass the local proxy.
@@ -205,8 +244,14 @@ pub fn apply_application_rules(config: &mut Value, settings: &Settings) -> Resul
     if !settings.direct_apps.is_empty() {
         app_rules.push(json!({"type": "field", "process": settings.direct_apps, "outboundTag": "direct"}));
     }
-    app_rules.append(rules);
-    *rules = app_rules;
+    let mut existing = std::mem::take(rules);
+    let mut ordered = Vec::new();
+    for rule in existing.drain(..) {
+        if rule.get("outboundTag").and_then(Value::as_str) == Some("block") { ordered.push(rule); }
+        else { app_rules.push(rule); }
+    }
+    ordered.append(&mut app_rules);
+    *rules = ordered;
     Ok(())
 }
 

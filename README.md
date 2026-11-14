@@ -106,20 +106,24 @@ artifacts through the **Build NikitaVPNClient** GitHub Actions workflow.
 - Xray process supervision, optional per-user system proxy on Windows, macOS
   and GNOME, HTTPS tunnel probe, domain/IP routing rules, per-process proxy/direct
   rules for apps that connect to the local HTTP/SOCKS proxy, domestic/remote DNS,
-  and Xray TLS ClientHello fragmentation settings.
+  and Xray TLS ClientHello fragmentation settings. Linux builds bundle tun2socks
+  and provide an opt-in TUN route with a persistent nftables kill switch.
 - Private local state/config files, atomic state replacement with backup,
   HTTPS-only subscription redirects, validation and credential-safe errors.
 
 ### Not implemented yet
 
-Kill switch, TUN mode, transparent per-application capture, QR import/export,
-and complete parity with the existing INCY desktop client are not implemented.
-Per-process Xray rules only affect apps that explicitly use the local SOCKS/HTTP
-proxy; they do not capture arbitrary app traffic. The tray menu is implemented,
-but availability depends on a desktop environment that supports
-StatusNotifierItem (Linux) or the native tray (Windows/macOS). System proxy mode
-is not a kill switch: applications can bypass it, and network traffic is not
-guaranteed to stop if Xray exits. Imported Xray JSON is preserved
+TUN and kill switch are currently implemented on Linux only; Windows/macOS
+native TUN/firewall backends, fully transparent per-application selection, QR
+import/export, and complete parity with the existing INCY desktop client remain
+unimplemented. Per-process Xray rules affect apps that explicitly use the local
+SOCKS/HTTP proxy; they do not identify apps after traffic enters TUN. Linux TUN
+requires administrator authorization, iproute2, and (for the kill switch) nftables.
+If the app crashes while kill switch is active, the fail-closed routes/firewall
+are deliberately left in place; reconnect or use Settings → Restore TUN routes,
+or reboot. System proxy mode alone is not a kill switch. The tray menu is
+implemented, but availability depends on StatusNotifierItem (Linux) or the native
+tray (Windows/macOS). Imported Xray JSON is preserved
 and passed to Xray at runtime, but is restricted to loopback-bound inbound
 listeners and must still pass the installed Xray version's config validation.
 KDE-specific proxy integration and runtime testing across Windows/macOS desktops
@@ -131,7 +135,7 @@ are also pending. Do not rely on this experimental build as a security boundary.
 | **Routing rules** — domains/IP to proxy, direct or block | ✅ | ✅ | ✅ basic Xray rules |
 | **Full config import** — arbitrary Xray JSON | ✅ | ✅ | ✅ loopback-only listeners |
 | **TLS fragmentation** | ✅ | ✅ | ✅ Xray TLS ClientHello |
-| **Kill switch / TUN** | ✅ | ✅ | — |
+| **Kill switch / TUN** | ✅ | ✅ | ✅ Linux; Windows/macOS pending |
 | **Per-app proxy** | Android | ✅ | ✅ Xray rules for apps using local proxy; no transparent capture |
 | **Tray / QR / TV pairing** | ✅ | ✅ | ✅ tray / — QR |
 | **Themes** | ✅ | ✅ | ✅ graphite/light/midnight/ocean/forest |

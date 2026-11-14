@@ -2,8 +2,10 @@
 //!
 //! A guard owns only settings it successfully changed. Back up the complete
 //! prior configuration before touching anything; restore it on disconnect.
-//! GNOME, macOS and Windows manual proxy modes are supported. TUN/kill switch and
-//! per-app routing require a separate privileged platform backend.
+//! GNOME, macOS and Windows manual proxy modes are supported. The Linux TUN and
+//! nftables kill switch live in `tun.rs`; per-process Xray rules only classify
+//! applications that explicitly connect to the local proxy. Transparent
+//! per-app capture on Windows/macOS remains platform-specific work.
 
 use std::process::Command;
 
